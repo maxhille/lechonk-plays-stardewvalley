@@ -8,6 +8,22 @@ Built for the ["Le Chonk wants to play" community challenge](https://app.notion.
 (16–29 October 2026). Submission: a demo video (≤ 2 min) + this repository + a short
 description, posted to `#challenges-submissions`.
 
+## Prerequisites
+
+- **Stardew Valley** via Steam, with **SMAPI 4.x** installed in the game folder.
+  Runtime requirement, deliberately not a build input.
+- **Steam launch wrapper** — on this NixOS box the game runs through
+  `steam-run`. The harness launches the game with the command given in
+  `SV_SMAPI_LAUNCH_CMD` (e.g. `steam-run <game dir>/StardewValley`). With a manual
+  SMAPI install the SMAPI launcher replaces the game binary (the original is
+  preserved as `StardewValley-original`); an installer-based install keeps
+  `StardewModdingAPI` instead.
+- **Mistral API key** (`MISTRAL_API_KEY`) for the harness.
+- **Nix** — `nix develop` gives the dev shell for building the mod
+  (Go + .NET SDK). The mod build locates the game folder via a machine-local
+  `stardewvalley.targets` in `$HOME` (not committed); `dotnet build` auto-deploys
+  the mod to `Mods/Lechonk/` in the game folder.
+
 ## Architecture
 
 Three processes, two network hops, one tool:
@@ -70,11 +86,14 @@ Three processes, two network hops, one tool:
 
 ## Roadmap
 
-- [ ] **Phase 0 — Grounds.** Game + SMAPI installed and running; repo scaffold
-  (`harness/`, `mod/`).
-- [ ] **Phase 1 — The body.** Minimal SMAPI mod: HTTP server, MoonSharp, one script
-  running as a coroutine over ticks, tick budget, cancel on close. Target: an external
-  script can walk the farmer to a tile and get a receipt.
+- [x] **Phase 0 — Grounds.** Game + SMAPI installed and running (SMAPI 4.5.2,
+  Stardew Valley 1.6.15, native Linux build, launched via `steam-run`); repo
+  scaffold (`harness/`, `mod/`).
+- [ ] **Phase 1 — The body.** First sub-milestone done: minimal SMAPI mod that
+  loads at startup and logs (`mod/Lechonk`, SMAPI 4.5 `IMod`/`Mod` API). Remaining:
+  HTTP server, MoonSharp, one script running as a coroutine over ticks, tick
+  budget, cancel on close. Target: an external script can walk the farmer to a
+  tile and get a receipt.
 - [ ] **Phase 2 — The brain.** Go/TUI harness: Mistral tool loop, `run_script` +
   `launch_game` + `quit_game`, prompt cache key, compaction, UTC header.
   Target: the model walks the farmer by itself, unaided.
@@ -90,6 +109,7 @@ Three processes, two network hops, one tool:
 ## Layout (planned)
 
 ```
+flake.nix  devShell (Go + .NET SDK); harness package lands in phase 2
 harness/   Go + Bubble Tea TUI, Mistral loop, context mgmt
-mod/       C# SMAPI mod (server, sandbox, Bot API)
+mod/Lechonk  C# SMAPI mod (loads at startup today; server, sandbox, Bot API next)
 ```
