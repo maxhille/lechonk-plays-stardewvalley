@@ -1,10 +1,14 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <AssemblyName>Lechonk</AssemblyName>
-    <RootNamespace>Lechonk</RootNamespace>
     <TargetFramework>net6.0</TargetFramework>
+    <LangVersion>10</LangVersion>
+    <Nullable>enable</Nullable>
   </PropertyGroup>
   <ItemGroup>
+    <PackageReference Include="MoonSharp" Version="2.0.0" />
     <PackageReference Include="Pathoschild.Stardew.ModBuildConfig" Version="4.4.0" />
   </ItemGroup>
+  <Target Name="CopyMoonSharp" AfterTargets="Build">
+    <Copy SourceFiles="$(NuGetPackageRoot)moonsharp/2.0.0/lib/netcore/MoonSharp.Interpreter.dll" DestinationFolder="$(OutputPath)" />
+  </Target>
 </Project>

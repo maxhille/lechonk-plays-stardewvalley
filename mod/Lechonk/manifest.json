@@ -1,9 +1,8 @@
 {
   "Name": "Lechonk",
   "Author": "maxhille",
-  "Version": "0.0.1",
-  "Description": "Backend for the Mistral Large 4 harness: in-game script execution.",
-  "EntryDLL": "Lechonk.dll",
+  "Version": "0.1.0",
+  "Description": "Backend for the Mistral Large 4 harness: in-game script execution with movement, menu/dialog navigation, and state queries.",
   "UniqueID": "maxhille.Lechonk",
-  "UpdateKeys": []
+  "EntryDll": "Lechonk.dll"
 }
