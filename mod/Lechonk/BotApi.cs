@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using Microsoft.Xna.Framework;
 using MoonSharp.Interpreter;
@@ -126,6 +127,46 @@ public class BotApi
     public object? GetDate()
     {
         return new Dictionary<string, object> { ["season"] = Game1.currentSeason, ["day"] = Game1.Date.DayOfMonth };
+    }
+
+    // ── Save / load ─────────────────────────────────────────────────
+
+    /// <summary>List available saves (folder names in the saves directory).</summary>
+    public object? ListSaves()
+    {
+        var savesDir = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "StardewValley", "Saves");
+        if (!Directory.Exists(savesDir))
+            return Array.Empty<string>();
+        return Directory.GetDirectories(savesDir)
+            .Select(Path.GetFileName)
+            .Where(n => n != null)
+            .Cast<string>()
+            .ToArray();
+    }
+
+    /// <summary>Load a save from the title screen. <paramref name="slotName"/> is the
+    /// save folder name (e.g. "Max_129552567"), as returned by listSaves.</summary>
+    public object? LoadGame(object? slotName)
+    {
+        var name = slotName?.ToString();
+        if (string.IsNullOrEmpty(name))
+            return "error: slotName required";
+        if (Game1.hasLoadedGame)
+            return "error: a game is already loaded (save and exit first)";
+        if (Game1.activeClickableMenu is not TitleMenu)
+            return "error: not on the title screen";
+
+        SaveGame.Load(name);
+        Game1.exitActiveMenu();
+        return $"loading {name}";
+    }
+
+    /// <summary>Check whether a save is loaded and the world is ready.</summary>
+    public bool IsWorldReady()
+    {
+        return Context.IsWorldReady;
     }
 
     // ── Menus ─────────────────────────────────────────────────────────
@@ -258,6 +299,9 @@ public class BotApi
         {
             methods = new[]
             {
+                new { name = "bot.listSaves()", description = "List save folder names (e.g. Max_129552567)." },
+                new { name = "bot.loadGame(slotName)", description = "From the title screen, load the given save folder. Returns 'loading <name>' or 'error: ...'." },
+                new { name = "bot.isWorldReady()", description = "True once a save is loaded and the world is ready." },
                 new { name = "bot.moveTo(x, y)", description = "Walk the farmer to tile (x, y). Yields until arrival or stuck." },
                 new { name = "bot.moveInDirection(dir, ticks)", description = "Move in direction (0=down, 1=left, 2=up, 3=right) for up to ticks steps." },
                 new { name = "bot.wait(ticks)", description = "Wait for the given number of ticks." },
@@ -301,6 +345,15 @@ internal record ScriptResult(
     private static object? Sanitize(object? obj)
     {
         if (obj == null) return null;
+
+        // MoonSharp tables returned by the script
+        if (obj is MoonSharp.Interpreter.Table table)
+        {
+            var dict = new Dictionary<string, object?>();
+            foreach (var pair in table.Pairs)
+                dict[pair.Key.Type == MoonSharp.Interpreter.DataType.String ? pair.Key.String : pair.Key.ToString()] = Sanitize(pair.Value.ToObject());
+            return dict;
+        }
 
         // Primitives
         if (obj is int or long or float or double or decimal or byte or short

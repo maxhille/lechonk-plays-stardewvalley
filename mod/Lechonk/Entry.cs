@@ -1,3 +1,4 @@
+using System;
 using StardewModdingAPI;
 using StardewModdingAPI.Events;
 
@@ -13,21 +14,44 @@ public class ModEntry : Mod
     /// <inheritdoc />
     public override void Entry(IModHelper helper)
     {
-        this.Monitor.Log("Lechonk mod initialising…");
+        try
+        {
+            this.Monitor.Log("Lechonk mod initialising…");
 
-        var botApi = new BotApi(this.Monitor);
-        var controller = new ScriptController(botApi, this.Monitor);
-        var runner = new CoroutineRunner(controller, this.Monitor);
+            var botApi = new BotApi(this.Monitor);
+            var controller = new ScriptController(botApi, this.Monitor);
+            var runner = new CoroutineRunner(controller, this.Monitor);
 
-        // Hook SMAPI events
-        helper.Events.GameLoop.UpdateTicked += runner.OnTick;
-        helper.Events.Input.ButtonPressed += (_, e) => runner.OnButtonPressed(e.Button);
+            // Hook SMAPI events
+            helper.Events.GameLoop.UpdateTicked += runner.OnTick;
+            helper.Events.Input.ButtonPressed += (_, e) => runner.OnButtonPressed(e.Button);
 
-        this._controller = controller;
-        this._runner = runner;
+            this._controller = controller;
+            this._runner = runner;
 
-        // Start HTTP server (listener thread starts in constructor)
-        this._httpServer = new HttpServer(controller, botApi, this.Monitor);
-        this._httpServer.Run();
+            // Defer HTTP server startup until after the game has finished
+            // initialising graphics. Starting a background TcpListener thread
+            // during Entry() races with SDL2/MonoGame native init on .NET 6
+            // Linux and crashes with PAL_SEHException (JIT compiler bug).
+            this._httpServer = new HttpServer(controller, botApi, this.Monitor);
+            helper.Events.GameLoop.GameLaunched += (_, _) =>
+            {
+                try
+                {
+                    this._httpServer?.Run();
+                    this.Monitor.Log("Lechonk HTTP server started after game launch.", LogLevel.Info);
+                }
+                catch (Exception ex)
+                {
+                    this.Monitor.Log($"Lechonk HTTP server failed to start: {ex}", LogLevel.Error);
+                }
+            };
+
+            this.Monitor.Log("Lechonk mod initialised successfully.", LogLevel.Info);
+        }
+        catch (Exception ex)
+        {
+            this.Monitor.Log($"Lechonk mod initialisation failed: {ex}", LogLevel.Error);
+        }
     }
 }

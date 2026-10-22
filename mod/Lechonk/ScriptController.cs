@@ -57,6 +57,9 @@ public class ScriptController
         botTable["getInventory"] = (Func<object?>)(() => _botApi.GetInventory());
         botTable["getTime"] = (Func<object?>)(() => _botApi.GetTime());
         botTable["getDate"] = (Func<object?>)(() => _botApi.GetDate());
+        botTable["listSaves"] = (Func<object?>)(() => _botApi.ListSaves());
+        botTable["loadGame"] = (Func<object?, object?>)(slotName => _botApi.LoadGame(slotName));
+        botTable["isWorldReady"] = (Func<object?>)(() => _botApi.IsWorldReady());
         botTable["getMenuType"] = (Func<object?>)(() => _botApi.GetMenuType());
         botTable["getMenuButtons"] = (Func<object?>)(() => _botApi.GetMenuButtons());
         botTable["clickMenuButton"] = (Func<object?, object?>)(idx => { _botApi.ClickMenuButton(idx); return null; });
