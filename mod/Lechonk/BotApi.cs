@@ -8,6 +8,7 @@ using MoonSharp.Interpreter;
 using StardewModdingAPI;
 using StardewValley;
 using StardewValley.Menus;
+using StardewValley.Objects;
 
 namespace Lechonk;
 
@@ -16,62 +17,149 @@ namespace Lechonk;
 public class BotApi
 {
     private readonly IMonitor _monitor;
+    private readonly IModHelper _helper;
+
+    /// <summary>Marker string that tells the Lua shim to yield this tick.
+    /// Scripts never see it: the shim converts it to coroutine.yield().</summary>
+    public const string Yield = "__lechonk_yield__";
     private readonly ConcurrentDictionary<int, ScriptResult> _scriptResults = new();
     private readonly ConcurrentQueue<int> _finishedIds = new();
 
-    public BotApi(IMonitor monitor)
+    public BotApi(IModHelper helper, IMonitor monitor)
     {
+        _helper = helper;
         _monitor = monitor;
     }
 
     // ── Movement ──────────────────────────────────────────────────────
 
-    /// <summary>Move the farmer to tile (x, y). Returns when arrived, yields each tick.</summary>
-    public object? MoveTo(object? x, object? y)
-    {
-        var tx = Convert.ToInt32(x);
-        var ty = Convert.ToInt32(y);
-        var farmer = Game1.player;
-        var location = Game1.currentLocation;
-
-        // Already there
-        if (farmer.Tile.X == tx && farmer.Tile.Y == ty)
-            return null;
-
-        // Determine direction: 0=down, 1=left, 2=up, 3=right
-        int dir;
-        var dx = tx - farmer.Tile.X;
-        var dy = ty - farmer.Tile.Y;
-
-        if (Math.Abs(dx) >= Math.Abs(dy))
-            dir = dx > 0 ? Farmer.right : Farmer.left;
-        else
-            dir = dy > 0 ? Farmer.down : Farmer.up;
-
-        // Check if the target tile is passable
-        if (!location.isTilePassable(new Vector2(tx, ty)))
-        {
-            return new YieldRequest();
-        }
-
-        // Try to move
-        farmer.tryToMoveInDirection(dir, true, 0, false);
-
-        return new YieldRequest();
-    }
-
-    /// <summary>Move the farmer in the given direction (0=down, 1=left, 2=up, 3=right) for one step.</summary>
-    public object? MoveInDirection(object? dir, object? ticks)
+    /// <summary>Hold a movement direction (0=down, 1=left, 2=up, 3=right) for one
+    /// tick: sets the movement flag and returns the yield marker. The Lua shim
+    /// calls this once per tick for `bot.move(dir, ticks)`, and calls
+    /// <see cref="Stop"/> when the tick count runs out. Also clears any stale
+    /// opposite-direction flags so the farmer doesn't walk in place.</summary>
+    public object? MoveTick(object? dir)
     {
         var d = Convert.ToInt32(dir);
-        Game1.player.tryToMoveInDirection(d, true, 0, false);
-        return new YieldRequest();
+        // Movement keybinds are WASD by default (arrows are not bound), so
+        // press the movement keys rather than the arrow keys.
+        var button = d switch
+        {
+            0 => SButton.S,
+            1 => SButton.A,
+            2 => SButton.W,
+            3 => SButton.D,
+            _ => (SButton?)null,
+        };
+        if (button == null)
+            return null;
+
+        // Synthesize the key press through SMAPI's input helper: equivalent
+        // to the player physically holding the key for one input tick. The
+        // game's own UpdateControlInput then walks the farmer, with collision
+        // and animations handled by the vanilla input path.
+        _helper.Input.Press(button.Value);
+        return Yield;
+    }
+
+    /// <summary>Stop any held movement immediately and restore free movement.</summary>
+    public void Stop()
+    {
+        var farmer = Game1.player;
+        farmer.Halt();
+    }
+
+    /// <summary>Wake the farmer up from bed. Farmer.Update re-sets isInBed while the
+    /// player stands on a tile with the "Bed" map property, so this teleports the
+    /// farmer to the bed's exit spot first (the vanilla wake-up position), then
+    /// clears the in-bed flag. A no-op if not in bed.</summary>
+    public object? WakeUp()
+    {
+        var farmer = Game1.player;
+        if (!farmer.isInBed.Value)
+            return null;
+
+        // Farmer.Update re-flags isInBed=true every tick while the player
+        // stands on a tile with the "Bed" map property (verified in IL), so
+        // the exit must be fully outside the bed footprint. Scan tiles around
+        // the bed for the first passable non-bed tile: below the bed first
+        // (the vanilla get-up side), then above, then left, then right.
+        var location = Game1.currentLocation!;
+        var bed = location.furniture.FirstOrDefault(f => f is BedFurniture) as BedFurniture;
+        if (bed == null)
+        {
+            // No bed furniture found: just clear the flag.
+            farmer.isInBed.Value = false;
+            farmer.forceCanMove();
+            return null;
+        }
+
+        var bedTile = bed.TileLocation;
+        var candidates = new[]
+        {
+            new Vector2(bedTile.X, bedTile.Y + 2),  // below the foot end
+            new Vector2(bedTile.X, bedTile.Y - 1),  // above the head end
+            new Vector2(bedTile.X - 1, bedTile.Y),  // left side
+            new Vector2(bedTile.X + 2, bedTile.Y),  // right side
+        };
+        Vector2? exit = null;
+        foreach (var t in candidates)
+        {
+            if (location.isTilePassable(t)
+                && location.doesTileHaveProperty((int)t.X, (int)t.Y, "Bed", "Back", false) is null)
+            {
+                exit = t * 64f;
+                break;
+            }
+        }
+        if (exit == null)
+        {
+            // Fall back to below-the-bed regardless of the Bed property check.
+            exit = new Vector2(bedTile.X, bedTile.Y + 2) * 64f;
+        }
+
+        farmer.Position = exit.Value;
+        farmer.isInBed.Value = false;
+        farmer.forceCanMove();
+        return new Dictionary<string, object> { ["x"] = farmer.Tile.X, ["y"] = farmer.Tile.Y };
+    }
+
+    /// <summary>Debug: list furniture in the current location as {name, tile, isBed}.</summary>
+    public object? ListFurniture()
+    {
+        var result = new List<object>();
+        foreach (var f in Game1.currentLocation.furniture)
+            result.Add(new Dictionary<string, object?>
+            {
+                ["name"] = f.Name,
+                ["type"] = f.GetType().Name,
+                ["x"] = f.TileLocation.X,
+                ["y"] = f.TileLocation.Y,
+                ["isBed"] = f is BedFurniture,
+            });
+        return result.ToArray();
+    }
+
+    /// <summary>Get debug movement state: tile, CanMove, isMoving, and whether an emote/menu blocks.</summary>
+    public object? GetMovementState()
+    {
+        var f = Game1.player;
+        return new Dictionary<string, object?>
+        {
+            ["tile"] = new Dictionary<string, object> { ["x"] = f.Tile.X, ["y"] = f.Tile.Y },
+            ["position"] = new Dictionary<string, object> { ["x"] = f.Position.X, ["y"] = f.Position.Y },
+            ["isInBed"] = f.isInBed.Value,
+            ["canMove"] = f.CanMove,
+            ["frozenAnimationPause"] = f.freezePause > 0,
+            ["activeMenu"] = Game1.activeClickableMenu?.GetType().Name,
+            ["currentLocation"] = Game1.currentLocation?.Name,
+        };
     }
 
     /// <summary>Wait for the given number of ticks (yields once; tick budget counts the waits).</summary>
     public object? Wait(object? ticks)
     {
-        return new YieldRequest();
+        return Yield;
     }
 
     // ── State ─────────────────────────────────────────────────────────
@@ -302,8 +390,9 @@ public class BotApi
                 new { name = "bot.listSaves()", description = "List save folder names (e.g. Max_129552567)." },
                 new { name = "bot.loadGame(slotName)", description = "From the title screen, load the given save folder. Returns 'loading <name>' or 'error: ...'." },
                 new { name = "bot.isWorldReady()", description = "True once a save is loaded and the world is ready." },
-                new { name = "bot.moveTo(x, y)", description = "Walk the farmer to tile (x, y). Yields until arrival or stuck." },
-                new { name = "bot.moveInDirection(dir, ticks)", description = "Move in direction (0=down, 1=left, 2=up, 3=right) for up to ticks steps." },
+                new { name = "bot.move(dir, ticks)", description = "Hold a movement direction (0=down, 1=left, 2=up, 3=right) for `ticks` game ticks, then stop. Blocking; yields once per tick." },
+                new { name = "bot.stop()", description = "Stop any held movement immediately." },
+                new { name = "bot.wakeUp()", description = "Get out of bed (teleports to the bed exit spot). Needed after loading a save made in bed." },
                 new { name = "bot.wait(ticks)", description = "Wait for the given number of ticks." },
                 new { name = "bot.getPosition()", description = "Return {x, y} of the farmer's current tile." },
                 new { name = "bot.isWalkable(x, y)", description = "Check if tile (x, y) is walkable." },

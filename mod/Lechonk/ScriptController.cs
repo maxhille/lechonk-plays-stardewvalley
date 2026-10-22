@@ -47,9 +47,13 @@ public class ScriptController
 
         // Expose the Bot API as a global table using Table + Func delegates
         var botTable = new MoonSharp.Interpreter.Table(script);
+
+        // Yielding calls return the Yield marker; the Lua prelude below wraps
+        // them so the marker becomes coroutine.yield() and the script ticks
+        // with the game.
         botTable["print"] = (Func<object?, object?>)(msg => { _botApi.Print(msg?.ToString()); return null; });
-        botTable["moveTo"] = (Func<object?, object?, object?>)( (x, y) => _botApi.MoveTo(x, y) );
-        botTable["moveInDirection"] = (Func<object?, object?, object?>)( (d, t) => _botApi.MoveInDirection(d, t) );
+        botTable["moveTick"] = (Func<object?, object?>)(d => _botApi.MoveTick(d));
+        botTable["stop"] = (Func<object?, object?>)(_ => { _botApi.Stop(); return null; });
         botTable["wait"] = (Func<object?, object?>)(t => _botApi.Wait(t));
         botTable["getPosition"] = (Func<object?>)(() => _botApi.GetPosition());
         botTable["isWalkable"] = (Func<object?, object?, object?>)( (x, y) => _botApi.IsWalkable(x, y) );
@@ -60,6 +64,9 @@ public class ScriptController
         botTable["listSaves"] = (Func<object?>)(() => _botApi.ListSaves());
         botTable["loadGame"] = (Func<object?, object?>)(slotName => _botApi.LoadGame(slotName));
         botTable["isWorldReady"] = (Func<object?>)(() => _botApi.IsWorldReady());
+        botTable["wakeUp"] = (Func<object?, object?>)(_ => { _botApi.WakeUp(); return null; });
+        botTable["listFurniture"] = (Func<object?>)(() => _botApi.ListFurniture());
+        botTable["getMovementState"] = (Func<object?>)(() => _botApi.GetMovementState());
         botTable["getMenuType"] = (Func<object?>)(() => _botApi.GetMenuType());
         botTable["getMenuButtons"] = (Func<object?>)(() => _botApi.GetMenuButtons());
         botTable["clickMenuButton"] = (Func<object?, object?>)(idx => { _botApi.ClickMenuButton(idx); return null; });
@@ -69,19 +76,50 @@ public class ScriptController
 
         script.Globals["bot"] = botTable;
 
-        // Try executing user code directly first
-        var result = script.DoString(luaCode);
-        MoonSharp.Interpreter.Coroutine coro;
+        // Lua prelude: implement the tick-based API on top of the raw
+        // per-tick primitives. `Y` is the yield marker returned by C# calls;
+        // it is never passed through to scripts.
+        const string prelude = @"
+            local Y = '__lechonk_yield__'
 
-        if (result.Type == MoonSharp.Interpreter.DataType.Function)
-        {
-            var coroValue = script.CreateCoroutine(result);
-            coro = coroValue.Coroutine;
-        }
-        else
+            -- bot.move(dir, ticks): hold a movement direction for `ticks`
+            -- game ticks, yielding once per tick, then stop.
+            function bot.move(dir, ticks)
+                ticks = ticks or 1
+                for i = 1, ticks do
+                    local ret = bot.moveTick(dir)
+                    if ret == Y then coroutine.yield() end
+                end
+                bot.stop()
+            end
+
+            -- bot.wait(ticks): yield once per tick for `ticks` ticks.
+            function bot.wait(ticks)
+                ticks = ticks or 1
+                for i = 1, ticks do
+                    coroutine.yield()
+                end
+            end
+        ";
+        script.DoString(prelude);
+
+        // Wrap the user code in a closure and run it as a coroutine. Never
+        // DoString the raw code: that would execute the body immediately on
+        // the HTTP thread, outside a coroutine, where yielding is an error
+        // (and every script would run twice).
+        MoonSharp.Interpreter.Coroutine coro;
         {
             var wrappedCode = $"return function() {luaCode} end";
-            var wrappedResult = script.DoString(wrappedCode);
+            MoonSharp.Interpreter.DynValue wrappedResult;
+            try
+            {
+                wrappedResult = script.DoString(wrappedCode);
+            }
+            catch (Exception ex)
+            {
+                _monitor.Log($"Script {id}: failed to compile: {ex.Message}", LogLevel.Error);
+                return -1;
+            }
             if (wrappedResult.Type != MoonSharp.Interpreter.DataType.Function)
             {
                 _monitor.Log($"Script {id}: failed to compile (got {wrappedResult.Type})", LogLevel.Error);
@@ -137,7 +175,9 @@ public class ScriptController
                 continue;
             }
 
-            if (result.YieldRequest != null)
+            // A yielded (suspended) coroutine resumes on a later tick;
+            // only a Dead coroutine is finished.
+            if (state.Coro.State != MoonSharp.Interpreter.CoroutineState.Dead)
             {
                 continue;
             }
