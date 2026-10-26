@@ -25,10 +25,22 @@ description, posted to `#challenges-submissions`.
   the mod to `Mods/Lechonk/` in the game folder.
 - **Window manager (sway)** — the game window must float so tiling never clips
   it: `for_window [class="StardewValley"] floating enable; inhibit_idle focus`
-  (configured in `~/dotfiles/modules/home/sway.nix`). The game must not pause
-  when unfocused: `<pauseWhenOutOfFocus>false</pauseWhenOutOfFocus>` in
-  `~/.config/StardewValley/startup_preferences`. Both are required for the bot
-  to play while the human looks elsewhere.
+  (configured in `~/dotfiles/modules/home/sway.nix`). Floating window plus the
+  no-pause setting below are both required for the bot to play while the human
+  looks elsewhere.
+- **No-pause when unfocused** — the per-player value the game actually reads is
+  `<pauseWhenOutOfFocus>false</pauseWhenOutOfFocus>` in the **save file**
+  (`~/.config/StardewValley/Saves/<save>/<save>`); the game overwrites
+  `startup_preferences`/`default_options` on close, so editing those alone does not
+  stick. Set it in the save file.
+- **Process lifetime — run the game as a user systemd unit.** The game must be
+  started under `systemd-run --user`, not as a background process of the agent's
+  bash tool. Pi's bash tool group-kills (`SIGKILL`) the whole process group it
+  spawned when a tool call finishes or is aborted, so anything started inline
+  (`nohup`/`setsid`/`&`) dies the instant the call returns. A transient user
+  unit is reparented to the user systemd manager, outside pi's tree, and stays
+  up across tool calls. Start/stop/status via the `manage-game` skill:
+  `bash .pi/skills/manage-game/scripts/manage.sh {start|stop|status}`.
 
 ## Architecture
 
@@ -118,8 +130,9 @@ and `GET /api` (full schema). Lua scripts see a `bot` table:
   `GET /api`), MoonSharp Lua sandbox running scripts as coroutines over game
   ticks, tick budget, cancel on connection close. Bot API: movement via
   synthetic input, save load/exit, wake-up, state queries, menu/dialogue
-  navigation (menus/dialogue untested). Tested end to end: load a save, wake
-  up, walk the farmer.
+  navigation. Tested end to end, driven by the pi agent over HTTP (the Go
+  harness below is not yet built): load a save, wake, walk the farmer, open the
+  TV channel menu.
 - [ ] **Phase 2 — The brain.** Go/TUI harness: Mistral tool loop, `run_script` +
   `launch_game` + `quit_game`, prompt cache key, compaction, UTC header.
   Target: the model walks the farmer by itself, unaided.
@@ -139,4 +152,5 @@ flake.nix  devShell (Go + .NET SDK); harness package lands in phase 2
 harness/   Go + Bubble Tea TUI, Mistral loop, context mgmt
 mod/Lechonk  C# SMAPI mod: HTTP server, Lua sandbox, Bot API
 .pi/skills/screenshot-game  pi skill: capture the game window to /tmp for reading
+.pi/skills/manage-game  pi skill: launch/stop/status the game as a user systemd unit
 ```
