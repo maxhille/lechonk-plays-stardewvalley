@@ -22,10 +22,6 @@ public class BotApi
     /// Scripts never see it: the shim converts it to coroutine.yield().</summary>
     public const string Yield = "__lechonk_yield__";
 
-    /// <summary>Cursor movement state, updated each tick by the caller (right
-    /// thumbstick in gamepad mode). The target is in screen pixels.</summary>
-    private Vector2? _cursorTarget;
-    private bool _cursorClick;
 
 
     public BotApi(IModHelper helper, IMonitor monitor)
@@ -35,23 +31,6 @@ public class BotApi
     }
 
     // ── Input (gamepad-style buttons) ─────────────────────────────────
-
-    /// <summary>Press a button (hold it down) and return the yield marker.
-    /// <paramref name="buttonName"/> is any SButton name: gamepad buttons
-    /// (DPadUp/DPadDown/DPadLeft/DPadRight, LeftThumbstickUp/..., A, B, X, Y,
-    /// LeftShoulder, RightShoulder, ...), keyboard keys (W, E, Escape, ...),
-    /// or mouse buttons (MouseLeft, MouseRight). The button stays down until
-    /// <see cref="ReleaseButton"/> is called — a continuous hold, like a
-    /// player keeping the key pressed. The Lua shim yields once per tick
-    /// between press and release for bot.pressButton(name, ticks).</summary>
-    public object? PressButtonTick(object? buttonName)
-    {
-        var name = buttonName?.ToString();
-        if (string.IsNullOrEmpty(name) || !Enum.TryParse<SButton>(name, true, out var button))
-            return $"error: unknown button '{name}'";
-        _helper.Input.Press(button);
-        return Yield;
-    }
 
     /// <summary>Tap a button (single input tick, no yield). Pair with
     /// bot.wait(1) or use bot.tap() to let the game process it.</summary>
@@ -145,30 +124,6 @@ public class BotApi
         catch (Exception ex)
         {
             _monitor.Log($"listFurniture failed: {ex}", LogLevel.Warn);
-            return "error: " + ex.Message;
-        }
-    }
-
-    /// <summary>Get debug movement state: tile, CanMove, isMoving, and whether an emote/menu blocks.</summary>
-    public object? GetMovementState()
-    {
-        try
-        {
-            var f = Game1.player;
-            return new Dictionary<string, object?>
-            {
-                ["tile"] = new Dictionary<string, object> { ["x"] = f.Tile.X, ["y"] = f.Tile.Y },
-                ["position"] = new Dictionary<string, object> { ["x"] = f.Position.X, ["y"] = f.Position.Y },
-                ["isInBed"] = f.isInBed.Value,
-                ["canMove"] = f.CanMove,
-                ["frozenAnimationPause"] = f.freezePause > 0,
-                ["activeMenu"] = Game1.activeClickableMenu?.GetType().Name,
-                ["currentLocation"] = Game1.currentLocation?.Name,
-            };
-        }
-        catch (Exception ex)
-        {
-            _monitor.Log($"getMovementState failed: {ex}", LogLevel.Warn);
             return "error: " + ex.Message;
         }
     }
@@ -353,32 +308,6 @@ public class BotApi
 
     // ── Input ─────────────────────────────────────────────────────────
 
-    /// <summary>Get the game's keybinds as semantic action → key name, resolved
-    /// from Game1.options so they follow the player's configured bindings.</summary>
-    public object? GetKeybinds()
-    {
-        var o = Game1.options;
-        string Key(InputButton[] buttons) =>
-            buttons.Length > 0 ? ((SButton)buttons[0].key).ToString() : "";
-        return new Dictionary<string, object?>
-        {
-            ["action"] = Key(o.actionButton),
-            ["useTool"] = Key(o.useToolButton),
-            ["cancel"] = Key(o.cancelButton),
-            ["menu"] = Key(o.menuButton),
-            ["map"] = Key(o.mapButton),
-            ["journal"] = Key(o.journalButton),
-            ["emote"] = Key(o.emoteButton),
-            ["run"] = Key(o.runButton),
-            ["chat"] = Key(o.chatButton),
-            ["moveUp"] = Key(o.moveUpButton),
-            ["moveDown"] = Key(o.moveDownButton),
-            ["moveLeft"] = Key(o.moveLeftButton),
-            ["moveRight"] = Key(o.moveRightButton),
-            ["gamepadControls"] = o.gamepadControls,
-        };
-    }
-
     // ── Menus ─────────────────────────────────────────────────────────
 
     /// <summary>Get info about the currently active menu, or null.</summary>
@@ -510,47 +439,6 @@ public class BotApi
         menu.receiveLeftClick(bounds.X + bounds.Width / 2, bounds.Y + bounds.Height / 2, true);
     }
 
-    /// <summary>Move the gamepad cursor (right thumbstick) toward screen pixels
-    /// (x, y), and when it lands, press A (action/click) exactly once. Call
-    /// this once per tick (the Lua shim loops it) until the cursor lands. Returns
-    /// the Yield marker while still moving, then "done" once at the target. The
-    /// click is registered on the tick after landing, at the cursor's position.
-    /// </summary>
-    public object? CursorToTick(object? x, object? y)
-    {
-        if (_cursorTarget == null)
-        {
-            _cursorTarget = new Vector2(Convert.ToSingle(x), Convert.ToSingle(y));
-            _cursorClick = true;
-        }
-
-        // Screen Y grows downward; the gamepad right thumbstick's +Y points up,
-        // so flip Y. Each Press/SButton is a one-tick override, so we simply
-        /// Press the direction we need each tick.
-        var cur = _helper.Input.GetCursorPosition().ScreenPixels;
-        float dx = _cursorTarget.Value.X - cur.X;
-        float dy = cur.Y - _cursorTarget.Value.Y;
-        const float tol = 3f;
-
-        if (MathF.Abs(dx) > tol || MathF.Abs(dy) > tol)
-        {
-            if (dx > tol) _helper.Input.Press(SButton.RightThumbstickRight);
-            else if (dx < -tol) _helper.Input.Press(SButton.RightThumbstickLeft);
-            if (dy > tol) _helper.Input.Press(SButton.RightThumbstickDown);
-            else if (dy < -tol) _helper.Input.Press(SButton.RightThumbstickUp);
-            return Yield;
-        }
-
-        // Landed: click (A) and stop.
-        if (_cursorClick)
-        {
-            _helper.Input.Press(SButton.A);
-            _cursorClick = false;
-        }
-        _cursorTarget = null;
-        return "done";
-    }
-
     // ── Dialogue ──────────────────────────────────────────────────────
 
     /// <summary>Advance the current dialogue (skip the current response).</summary>
@@ -613,7 +501,6 @@ public class BotApi
                 new { name = "bot.moveLeft(ticks) / bot.moveRight(ticks) / bot.moveUp(ticks) / bot.moveDown(ticks)", description = "Walk in a direction for `ticks` game ticks. The agent never needs to know key names; the mod resolves the game's movement keybinds." },
                 new { name = "bot.move(dir, ticks)", description = "Same, with dir 0=down, 1=left, 2=up, 3=right." },
                 new { name = "bot.stop()", description = "Stop any held movement immediately." },
-                new { name = "bot.getKeybinds()", description = "Semantic action -> key name, resolved from the game's configured bindings. Movement uses the keyboard keybinds (WASD by default)." },
                 new { name = "bot.wakeUp()", description = "Get out of bed (teleports to the bed exit spot). Needed after loading a save made in bed." },
                 new { name = "bot.wait(ticks)", description = "Wait for the given number of ticks." },
                 new { name = "bot.getMapSchema()", description = "Map schema for the current location: { location, width, height, player {x, y}, walkable (grid rows of '.'/'#'), warps [{x, y, target, targetX, targetY}] }." },

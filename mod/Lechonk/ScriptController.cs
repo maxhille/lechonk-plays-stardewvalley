@@ -44,9 +44,7 @@ public class ScriptController
             var script = new MoonSharp.Interpreter.Script();
             var botTable = new MoonSharp.Interpreter.Table(script);
             botTable["print"] = (Func<object?, object?>)(msg => { _botApi.Print(msg?.ToString()); return null; });
-            botTable["pressButtonTick"] = (Func<object?, object?>)(b => _botApi.PressButtonTick(b));
             botTable["tapButton"] = (Func<object?, object?>)(b => _botApi.TapButton(b));
-            botTable["getKeybinds"] = (Func<object?>)(() => _botApi.GetKeybinds());
             botTable["stop"] = (Func<object?, object?>)(_ => { _botApi.Stop(); return null; });
             botTable["wait"] = (Func<object?, object?>)(t => _botApi.Wait(t));
             botTable["getMapSchema"] = (Func<object?>)(() => _botApi.GetMapSchema());
@@ -62,11 +60,9 @@ public class ScriptController
             botTable["waitForWorldReadyTick"] = (Func<object?, object?>)(_ => _botApi.WaitForWorldReady());
             botTable["wakeUp"] = (Func<object?, object?>)(_ => { _botApi.WakeUp(); return null; });
             botTable["listFurniture"] = (Func<object?>)(() => _botApi.ListFurniture());
-            botTable["getMovementState"] = (Func<object?>)(() => _botApi.GetMovementState());
             botTable["getMenuType"] = (Func<object?>)(() => _botApi.GetMenuType());
             botTable["getMenuButtons"] = (Func<object?>)(() => _botApi.GetMenuButtons());
             botTable["clickMenuButton"] = (Func<object?, object?>)(idx => { _botApi.ClickMenuButton(idx); return null; });
-            botTable["cursorToTick"] = (Func<object?, object?, object?>)((x, y) => _botApi.CursorToTick(x, y));
             botTable["advanceDialogue"] = (Func<object?, object?>)(_ => { _botApi.AdvanceDialogue(); return null; });
             botTable["selectDialogueOption"] = (Func<object?, object?>)(idx => { _botApi.SelectDialogueOption(idx); return null; });
             botTable["closeDialogue"] = (Func<object?, object?>)(_ => { _botApi.CloseDialogue(); return null; });
@@ -78,11 +74,11 @@ public class ScriptController
 
                 function bot.pressButton(name, ticks)
                     ticks = ticks or 1
-                    local ret = bot.pressButtonTick(name)
-                    if ret ~= Y then return ret end
+                    local ret = bot.tapButton(name)
+                    if ret ~= nil then return ret end
                     for i = 1, ticks do
                         coroutine.yield()
-                        if i < ticks then bot.pressButtonTick(name) end
+                        if i < ticks then bot.tapButton(name) end
                     end
                 end
 
@@ -113,18 +109,6 @@ public class ScriptController
                 function bot.moveRight(ticks) return bot.move(3, ticks) end
                 function bot.moveUp(ticks)    return bot.move(2, ticks) end
                 function bot.moveDown(ticks)  return bot.move(0, ticks) end
-
-                function bot.cursorTo(x, y)
-                    local ret = bot.cursorToTick(x, y)
-                    local count = 0
-                    while ret == Y do
-                        ret = bot.cursorToTick(x, y)
-                        coroutine.yield()
-                        count = count + 1
-                        if count > 200 then return 'cursor_stuck' end
-                    end
-                    return ret
-                end
 
                 function bot.wait(ticks)
                     ticks = ticks or 1

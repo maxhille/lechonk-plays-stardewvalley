@@ -132,10 +132,7 @@ Lua scripts see a `bot` table:
   label/visible/bounds — **label** is the response text for `DialogueBox`
   menus), `bot.clickMenuButton(index)`, `bot.advanceDialogue()`,
   `bot.selectDialogueOption(index)`, `bot.closeDialogue()`.
-- **Cursor:** `bot.cursorTo(x, y)` — move the on-screen cursor (right thumbstick)
-  to absolute screen pixels (x, y), then press A once at the target. For
-  mouse-driven menus (TV channels, etc.). Top-left origin, +Y downward.
-- **Debug:** `bot.getMovementState()`, `bot.listFurniture()`, `bot.print(msg)`.
+- **Debug:** `bot.listFurniture()`, `bot.print(msg)`.
 
 ## Roadmap
 
