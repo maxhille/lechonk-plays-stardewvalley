@@ -76,15 +76,16 @@ Three processes, two network hops, one tool:
 ### Design decisions
 
 - **One tool: `run_script`.** The mod's entire surface is `POST /script`
-  (`{ prints, result, error, ticksUsed }`) and `GET /api` (API schema + recipes).
-  No abort endpoint, no state endpoint, no script registry.
-- **Synchronous to the agent, coroutines underneath.** A script *looks* blocking
-  (`bot.walkTo(x, y)` returns on arrival) but internally yields and resumes as the
-  game ticks. The player can only move when the game's update loop runs, so true
-  blocking is not an option.
+  (`{ result, error, ticksUsed, evt }`) and `GET /api` (API schema).
+  No abort endpoint, no status endpoint, no script registry.
+- **Synchronous to the agent, coroutines underneath.** `POST /script` blocks the
+  HTTP connection until the Lua coroutine finishes (or hits the tick budget) and
+  writes the result back in the same response. Inside the mod the script yields
+  each game tick — the game loop resumes it — but the caller never polls.
 - **Tick budget is the only safety fence.** Every script has a hard tick cap; a stuck
-  script returns `stuck`, the agent re-plans. Connection close cancels the active
-  script (the TCP connection is the run's lifetime handle).
+  script returns `{ error: "stuck: tick budget exceeded…", evt: "stuck" }`, the
+  agent re-plans. Connection close cancels the active script (the TCP connection
+  is the run's lifetime handle).
 - **Sandbox with no OS access.** MoonSharp runs stripped of `io`/`os`; scripts can only
   call the exposed Bot API. The API whitelist *is* the security boundary.
 - **Prompt cache discipline.** Stable prefix (system prompt → tools →
@@ -104,21 +105,36 @@ Three processes, two network hops, one tool:
 
 ## Bot API
 
-The mod's entire surface is `POST /script` (`{ prints, result, error, ticksUsed }`)
-and `GET /api` (full schema). Lua scripts see a `bot` table:
+The mod's entire surface is `POST /script` (response: `{ result, error, ticksUsed, evt }`)
+and `GET /api` (full schema). Send the Lua code directly as the request body:
+```
+curl -s -X POST http://127.0.0.1:17642/script \
+  -H 'Content-Type: application/lua' \
+  -d 'local m = bot.getMapSchema()\nreturn {x = m.player.x, y = m.player.y}'
+```
+No JSON wrapper, no `scriptId`. The response is written back on the same connection after
+the coroutine finishes: a `200` with `{ result, error, ticksUsed, evt }`.
+No `GET /status`, no polling.
 
-- **Movement:** `bot.move(dir, ticks)` — hold a direction (0=down, 1=left, 2=up,
-  3=right) for `ticks` input ticks via SMAPI's `helper.Input.Press` (WASD; the
-  game's own input pipeline does the walking). `bot.stop()` halts immediately.
+Lua scripts see a `bot` table:
+
+- **Movement:** `bot.move(dir, ticks)` — hold the LEFT thumbstick (0=down, 1=left,
+  2=up, 3=right) for `ticks` input ticks. The game runs in gamepad mode; the
+  controller is the sole input source. `bot.stop()` halts immediately.
 - **Saves:** `bot.listSaves()`, `bot.loadGame(slotName)` (from the title screen,
   skips character creation), `bot.exitToTitle()`, `bot.isWorldReady()`,
   `bot.wakeUp()` (teleports off the bed footprint — required after loading a
   save made in bed, the game re-flags `isInBed` while standing on a bed tile).
 - **State:** `bot.getPosition()`, `bot.isWalkable(x, y)`, `bot.getTileObject(x, y)`,
   `bot.getInventory()`, `bot.getTime()`, `bot.getDate()`, `bot.wait(ticks)`.
-- **Menus/dialogue:** `bot.getMenuType()`, `bot.getMenuButtons()`,
-  `bot.clickMenuButton(index)`, `bot.advanceDialogue()`,
+- **Menus/dialogue:** `bot.getMenuType()` (type, buttonCount, **text** — the
+  narrative dialogue text), `bot.getMenuButtons()` (component index/type/
+  label/visible/bounds — **label** is the response text for `DialogueBox`
+  menus), `bot.clickMenuButton(index)`, `bot.advanceDialogue()`,
   `bot.selectDialogueOption(index)`, `bot.closeDialogue()`.
+- **Cursor:** `bot.cursorTo(x, y)` — move the on-screen cursor (right thumbstick)
+  to absolute screen pixels (x, y), then press A once at the target. For
+  mouse-driven menus (TV channels, etc.). Top-left origin, +Y downward.
 - **Debug:** `bot.getMovementState()`, `bot.listFurniture()`, `bot.print(msg)`.
 
 ## Roadmap

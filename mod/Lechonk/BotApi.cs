@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -19,14 +18,15 @@ public class BotApi
     private readonly IMonitor _monitor;
     private readonly IModHelper _helper;
 
-    /// <summary>Set in Entry after construction; used for input isolation.</summary>
-    public InputGuard? InputGuard { get; set; }
-
     /// <summary>Marker string that tells the Lua shim to yield this tick.
     /// Scripts never see it: the shim converts it to coroutine.yield().</summary>
     public const string Yield = "__lechonk_yield__";
-    private readonly ConcurrentDictionary<int, ScriptResult> _scriptResults = new();
-    private readonly ConcurrentQueue<int> _finishedIds = new();
+
+    /// <summary>Cursor movement state, updated each tick by the caller (right
+    /// thumbstick in gamepad mode). The target is in screen pixels.</summary>
+    private Vector2? _cursorTarget;
+    private bool _cursorClick;
+
 
     public BotApi(IModHelper helper, IMonitor monitor)
     {
@@ -353,29 +353,6 @@ public class BotApi
 
     // ── Input ─────────────────────────────────────────────────────────
 
-    /// <summary>Lock or unlock the user's physical input. While locked (or while
-    /// any script is running), the game ignores the user's keyboard/mouse/gamepad
-    /// input entirely — only the bot's synthetic button presses register.</summary>
-    public object? SetInputLock(object? enabled)
-    {
-        if (InputGuard == null)
-            return "error: input guard not initialised";
-        InputGuard.Locked = Convert.ToBoolean(enabled);
-        return InputGuard.Locked;
-    }
-
-    /// <summary>Whether the user's physical input is currently locked out.</summary>
-    public object? IsInputLocked()
-    {
-        return InputGuard?.Locked ?? false;
-    }
-
-    /// <summary>Check whether a button is currently suppressed (debug).</summary>
-    public object? IsSuppressed(object? buttonName)
-    {
-        return InputGuard?.IsSuppressed(buttonName) ?? false;
-    }
-
     /// <summary>Get the game's keybinds as semantic action → key name, resolved
     /// from Game1.options so they follow the player's configured bindings.</summary>
     public object? GetKeybinds()
@@ -415,38 +392,107 @@ public class BotApi
         return new Dictionary<string, object?>
         {
             ["type"] = menu.GetType().Name,
-            ["buttonCount"] = menu is IClickableMenu cm ? cm.getComponentWithID(0) != null ? 1 : 0 : 0
+            ["buttonCount"] = menu is IClickableMenu cm ? cm.getComponentWithID(0) != null ? 1 : 0 : 0,
+            ["text"] = menu is DialogueBox db ? db.getCurrentString() : null
         };
     }
 
-    /// <summary>Get button info for the active menu (if it has clickable components).</summary>
+    /// <summary>Get button info for the active menu (if it has clickable components).
+    /// When the menu is a DialogueBox, the response text is exposed as the label of
+    /// each response component, and an additional <c>responseText</c> array is included.</summary>
     public object? GetMenuButtons()
     {
         var menu = Game1.activeClickableMenu;
         if (menu == null) return null;
 
-        // Try to get clickable components via getComponentWithID
-        // We scan IDs 0-20 to find buttons
-        var result = new List<object>();
-        for (int i = 0; i < 20; i++)
+        // Extract dialogue response labels so the agent can read what each option says.
+        string[] responseText = null;
+        if (menu is DialogueBox db)
         {
-            var comp = menu.getComponentWithID(i);
-            if (comp != null)
+            if (db.responses != null)
             {
-                result.Add(new Dictionary<string, object?>
+                responseText = new string[db.responses.Length];
+                for (int i = 0; i < db.responses.Length; i++)
                 {
-                    ["index"] = i,
-                    ["label"] = comp.label ?? "",
-                    ["visible"] = comp.visible,
-                    ["myID"] = comp.myID
-                });
-            }
-            else
-            {
-                break; // IDs are sequential, stop at first missing
+                    var resp = db.responses[i];
+                    // Response exposes its display string via Label (Stardew's Response class).
+                    responseText[i] = GetResponseLabel(resp);
+                }
             }
         }
+
+        var result = new List<object>();
+        for (int i = 0; i < 32; i++)
+        {
+            var comp = menu.getComponentWithID(i);
+            if (comp == null) break; // IDs are sequential, stop at first missing
+
+            var bounds = new Dictionary<string, object?>
+            {
+                ["x"] = comp.bounds.X,
+                ["y"] = comp.bounds.Y,
+                ["w"] = comp.bounds.Width,
+                ["h"] = comp.bounds.Height
+            };
+
+            // Prefer the component's own label; fall back to the response text when the
+            // component's label is empty (DialogueBox responses keep their text on Response,
+            // not on the button UIElement).
+            var label = comp.label ?? "";
+            if (responseText != null && i < responseText.Length && string.IsNullOrEmpty(label))
+            {
+                label = responseText[i];
+            }
+
+            result.Add(new Dictionary<string, object?>
+            {
+                ["index"] = i,
+                ["type"] = comp.GetType().Name,
+                ["label"] = label,
+                ["visible"] = comp.visible,
+                ["myID"] = comp.myID,
+                ["bounds"] = bounds
+            });
+        }
+
+        if (responseText != null)
+        {
+            result.Add(new Dictionary<string, object?>
+            {
+                ["_responseText"] = responseText.ToArray()
+            });
+        }
+
         return result.ToArray();
+    }
+
+    /// <summary>Extract the display text of a DialogueBox response.
+    /// Responses carry their display string in a string property (name varies by
+    /// game version); take the first public string-valued instance property.
+    /// </summary>
+    private static string GetResponseLabel(object response)
+    {
+        if (response == null) return "";
+        var type = response.GetType();
+        // Prefer known field names (responseText is the real display-text field in SV 1.5/1.6).
+        foreach (var fname in new[] { "responseText", "Label", "Text" })
+        {
+            var field = type.GetField(fname, System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
+            if (field != null)
+            {
+                var val = field.GetValue(response);
+                if (val != null) return val.ToString();
+            }
+        }
+        foreach (var prop in type.GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance))
+        {
+            if (prop.PropertyType == typeof(string))
+            {
+                var val = prop.GetValue(response);
+                if (val != null) return val.ToString();
+            }
+        }
+        return response.ToString() ?? "";
     }
 
     /// <summary>Click the button at the given index on the active menu.</summary>
@@ -462,6 +508,47 @@ public class BotApi
         // Click at the component's screen position
         var bounds = comp.bounds;
         menu.receiveLeftClick(bounds.X + bounds.Width / 2, bounds.Y + bounds.Height / 2, true);
+    }
+
+    /// <summary>Move the gamepad cursor (right thumbstick) toward screen pixels
+    /// (x, y), and when it lands, press A (action/click) exactly once. Call
+    /// this once per tick (the Lua shim loops it) until the cursor lands. Returns
+    /// the Yield marker while still moving, then "done" once at the target. The
+    /// click is registered on the tick after landing, at the cursor's position.
+    /// </summary>
+    public object? CursorToTick(object? x, object? y)
+    {
+        if (_cursorTarget == null)
+        {
+            _cursorTarget = new Vector2(Convert.ToSingle(x), Convert.ToSingle(y));
+            _cursorClick = true;
+        }
+
+        // Screen Y grows downward; the gamepad right thumbstick's +Y points up,
+        // so flip Y. Each Press/SButton is a one-tick override, so we simply
+        /// Press the direction we need each tick.
+        var cur = _helper.Input.GetCursorPosition().ScreenPixels;
+        float dx = _cursorTarget.Value.X - cur.X;
+        float dy = cur.Y - _cursorTarget.Value.Y;
+        const float tol = 3f;
+
+        if (MathF.Abs(dx) > tol || MathF.Abs(dy) > tol)
+        {
+            if (dx > tol) _helper.Input.Press(SButton.RightThumbstickRight);
+            else if (dx < -tol) _helper.Input.Press(SButton.RightThumbstickLeft);
+            if (dy > tol) _helper.Input.Press(SButton.RightThumbstickDown);
+            else if (dy < -tol) _helper.Input.Press(SButton.RightThumbstickUp);
+            return Yield;
+        }
+
+        // Landed: click (A) and stop.
+        if (_cursorClick)
+        {
+            _helper.Input.Press(SButton.A);
+            _cursorClick = false;
+        }
+        _cursorTarget = null;
+        return "done";
     }
 
     // ── Dialogue ──────────────────────────────────────────────────────
@@ -509,24 +596,6 @@ public class BotApi
         _monitor.Log($"script: {msg}", LogLevel.Trace);
     }
 
-    // ── Internal result tracking ──────────────────────────────────────
-
-    internal void RecordResult(int scriptId, string prints, object? result, string? error, int ticksUsed, ScriptEvent @event)
-    {
-        var r = new ScriptResult(scriptId, prints, result, error, ticksUsed, @event);
-        _scriptResults[scriptId] = r;
-        _finishedIds.Enqueue(scriptId);
-    }
-
-    internal ScriptResponse? GetScriptResult(int id)
-    {
-        if (_scriptResults.TryGetValue(id, out var r))
-        {
-            return r.ToResponse();
-        }
-        return null;
-    }
-
     /// <summary>Get the full API schema for the GET /api endpoint.</summary>
     public object GetApiSchema()
     {
@@ -545,9 +614,6 @@ public class BotApi
                 new { name = "bot.move(dir, ticks)", description = "Same, with dir 0=down, 1=left, 2=up, 3=right." },
                 new { name = "bot.stop()", description = "Stop any held movement immediately." },
                 new { name = "bot.getKeybinds()", description = "Semantic action -> key name, resolved from the game's configured bindings. Movement uses the keyboard keybinds (WASD by default)." },
-                new { name = "bot.setInputLock(enabled)", description = "Lock out the user's physical keyboard/mouse/gamepad input so it can't interfere with the bot. Also auto-applies while any script is running." },
-                new { name = "bot.isInputLocked()", description = "Whether the user's physical input is locked out." },
-                new { name = "bot.isSuppressed(buttonName)", description = "Debug: whether a button is currently suppressed." },
                 new { name = "bot.wakeUp()", description = "Get out of bed (teleports to the bed exit spot). Needed after loading a save made in bed." },
                 new { name = "bot.wait(ticks)", description = "Wait for the given number of ticks." },
                 new { name = "bot.getMapSchema()", description = "Map schema for the current location: { location, width, height, player {x, y}, walkable (grid rows of '.'/'#'), warps [{x, y, target, targetX, targetY}] }." },
@@ -568,76 +634,3 @@ public class BotApi
     }
 }
 
-/// <summary>Internal result storage.</summary>
-internal record ScriptResult(
-    int ScriptId,
-    string Prints,
-    object? Result,
-    string? Error,
-    int TicksUsed,
-    ScriptEvent Event)
-{
-    public ScriptResponse ToResponse() => new()
-    {
-        ScriptId = ScriptId,
-        Prints = Prints,
-        Result = Sanitize(Result),
-        Error = Error,
-        TicksUsed = TicksUsed,
-        Event = Event.ToString().ToLower()
-    };
-
-    private static object? Sanitize(object? obj)
-    {
-        if (obj == null) return null;
-
-        // MoonSharp tables returned by the script
-        if (obj is MoonSharp.Interpreter.Table table)
-        {
-            var dict = new Dictionary<string, object?>();
-            foreach (var pair in table.Pairs)
-                dict[pair.Key.Type == MoonSharp.Interpreter.DataType.String ? pair.Key.String : pair.Key.ToString()] = Sanitize(pair.Value.ToObject());
-            return dict;
-        }
-
-        // Primitives
-        if (obj is int or long or float or double or decimal or byte or short
-            or uint or ulong or ushort or sbyte or string or bool)
-            return obj;
-
-        if (obj is System.DateTime dt)
-            return dt.ToString("O");
-
-        // Collections
-        if (obj is System.Collections.IEnumerable ie && obj is not string)
-        {
-            var list = new List<object?>();
-            foreach (var item in ie)
-                list.Add(Sanitize(item));
-            return list.ToArray();
-        }
-
-        if (obj is System.Collections.IDictionary dic)
-        {
-            var dict = new Dictionary<string, object?>();
-            foreach (System.Collections.DictionaryEntry entry in dic)
-            {
-                var key = Sanitize(entry.Key)?.ToString() ?? "";
-                dict[key] = Sanitize(entry.Value);
-            }
-            return dict;
-        }
-
-        // Fallback: string representation
-        return obj.ToString() ?? "";
-    }
-}
-
-/// <summary>How a script finished.</summary>
-public enum ScriptEvent
-{
-    Completed,
-    Stuck,
-    DialogInterrupted,
-    Cancelled
-}
