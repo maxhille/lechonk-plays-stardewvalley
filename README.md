@@ -23,6 +23,12 @@ description, posted to `#challenges-submissions`.
   (Go + .NET SDK). The mod build locates the game folder via a machine-local
   `stardewvalley.targets` in `$HOME` (not committed); `dotnet build` auto-deploys
   the mod to `Mods/Lechonk/` in the game folder.
+- **Window manager (sway)** — the game window must float so tiling never clips
+  it: `for_window [class="StardewValley"] floating enable; inhibit_idle focus`
+  (configured in `~/dotfiles/modules/home/sway.nix`). The game must not pause
+  when unfocused: `<pauseWhenOutOfFocus>false</pauseWhenOutOfFocus>` in
+  `~/.config/StardewValley/startup_preferences`. Both are required for the bot
+  to play while the human looks elsewhere.
 
 ## Architecture
 
@@ -84,16 +90,36 @@ Three processes, two network hops, one tool:
   interrupted run; a script library (plain agent-side files). No full history log —
   it isn't needed.
 
+## Bot API
+
+The mod's entire surface is `POST /script` (`{ prints, result, error, ticksUsed }`)
+and `GET /api` (full schema). Lua scripts see a `bot` table:
+
+- **Movement:** `bot.move(dir, ticks)` — hold a direction (0=down, 1=left, 2=up,
+  3=right) for `ticks` input ticks via SMAPI's `helper.Input.Press` (WASD; the
+  game's own input pipeline does the walking). `bot.stop()` halts immediately.
+- **Saves:** `bot.listSaves()`, `bot.loadGame(slotName)` (from the title screen,
+  skips character creation), `bot.exitToTitle()`, `bot.isWorldReady()`,
+  `bot.wakeUp()` (teleports off the bed footprint — required after loading a
+  save made in bed, the game re-flags `isInBed` while standing on a bed tile).
+- **State:** `bot.getPosition()`, `bot.isWalkable(x, y)`, `bot.getTileObject(x, y)`,
+  `bot.getInventory()`, `bot.getTime()`, `bot.getDate()`, `bot.wait(ticks)`.
+- **Menus/dialogue:** `bot.getMenuType()`, `bot.getMenuButtons()`,
+  `bot.clickMenuButton(index)`, `bot.advanceDialogue()`,
+  `bot.selectDialogueOption(index)`, `bot.closeDialogue()`.
+- **Debug:** `bot.getMovementState()`, `bot.listFurniture()`, `bot.print(msg)`.
+
 ## Roadmap
 
 - [x] **Phase 0 — Grounds.** Game + SMAPI installed and running (SMAPI 4.5.2,
   Stardew Valley 1.6.15, native Linux build, launched via `steam-run`); repo
   scaffold (`harness/`, `mod/`).
-- [ ] **Phase 1 — The body.** First sub-milestone done: minimal SMAPI mod that
-  loads at startup and logs (`mod/Lechonk`, SMAPI 4.5 `IMod`/`Mod` API). Remaining:
-  HTTP server, MoonSharp, one script running as a coroutine over ticks, tick
-  budget, cancel on close. Target: an external script can walk the farmer to a
-  tile and get a receipt.
+- [x] **Phase 1 — The body.** SMAPI mod with HTTP server (`POST /script`,
+  `GET /api`), MoonSharp Lua sandbox running scripts as coroutines over game
+  ticks, tick budget, cancel on connection close. Bot API: movement via
+  synthetic input, save load/exit, wake-up, state queries, menu/dialogue
+  navigation (menus/dialogue untested). Tested end to end: load a save, wake
+  up, walk the farmer.
 - [ ] **Phase 2 — The brain.** Go/TUI harness: Mistral tool loop, `run_script` +
   `launch_game` + `quit_game`, prompt cache key, compaction, UTC header.
   Target: the model walks the farmer by itself, unaided.
@@ -111,5 +137,6 @@ Three processes, two network hops, one tool:
 ```
 flake.nix  devShell (Go + .NET SDK); harness package lands in phase 2
 harness/   Go + Bubble Tea TUI, Mistral loop, context mgmt
-mod/Lechonk  C# SMAPI mod (loads at startup today; server, sandbox, Bot API next)
+mod/Lechonk  C# SMAPI mod: HTTP server, Lua sandbox, Bot API
+.pi/skills/screenshot-game  pi skill: capture the game window to /tmp for reading
 ```

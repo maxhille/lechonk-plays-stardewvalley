@@ -251,6 +251,16 @@ public class BotApi
         return $"loading {name}";
     }
 
+    /// <summary>Quit the current save back to the title screen so another save
+    /// can be loaded. No-op if no game is loaded.</summary>
+    public object? ExitToTitle()
+    {
+        if (!Game1.hasLoadedGame)
+            return "error: no game loaded";
+        Game1.ExitToTitle(null);
+        return "exiting to title";
+    }
+
     /// <summary>Check whether a save is loaded and the world is ready.</summary>
     public bool IsWorldReady()
     {
@@ -389,6 +399,7 @@ public class BotApi
             {
                 new { name = "bot.listSaves()", description = "List save folder names (e.g. Max_129552567)." },
                 new { name = "bot.loadGame(slotName)", description = "From the title screen, load the given save folder. Returns 'loading <name>' or 'error: ...'." },
+                new { name = "bot.exitToTitle()", description = "Quit the current save back to the title screen." },
                 new { name = "bot.isWorldReady()", description = "True once a save is loaded and the world is ready." },
                 new { name = "bot.move(dir, ticks)", description = "Hold a movement direction (0=down, 1=left, 2=up, 3=right) for `ticks` game ticks, then stop. Blocking; yields once per tick." },
                 new { name = "bot.stop()", description = "Stop any held movement immediately." },
