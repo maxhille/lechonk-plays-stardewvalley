@@ -15,6 +15,8 @@ public class InputGuard
     private readonly IMonitor _monitor;
     private SButton[]? _buttons;
     private bool _locked;
+    private int _readyTicks;
+    private bool _wasReady;
 
     public InputGuard(IModHelper helper, IMonitor monitor)
     {
@@ -38,16 +40,50 @@ public class InputGuard
     /// <summary>Apply suppression for this tick. Must be called every game tick
     /// while active: SMAPI drops suppression for buttons that aren't physically
     /// held, so it has to be re-applied. Call before the bot's Press() calls so
-    /// the bot's presses win.</summary>
+    /// the bot's presses win.
+    ///
+    /// Only applied once the world is loaded: suppressing every button on the
+    /// input state during the save-load / world-load transition hard-crashes the
+    /// game, so stay quiet until a location is up.</summary>
     public void Apply(bool anyScriptActive)
     {
-        if (!_locked && !anyScriptActive)
-            return;
+        try
+        {
+            if (!_locked && !anyScriptActive)
+                return;
 
-        _buttons ??= Enum.GetValues<SButton>().Where(b => b != SButton.None).ToArray();
-        foreach (var button in _buttons)
-            _helper.Input.Suppress(button);
-        _helper.Input.SuppressScrollWheel();
+            // Stay out of the input state while the world is loading / not loaded
+            // (title screen, save-load transition). Writing suppression into the
+            // input state mid-load hard-kills the process. Even after the world
+            // is ready, the render transition keeps running for a beat; only apply
+            // after the world has been ready for a second. This is what was flakily
+            // crashing the process.
+            bool ready = Context.IsWorldReady;
+            if (!ready)
+            {
+                _readyTicks = 0;
+                _wasReady = false;
+                return;
+            }
+            if (!_wasReady)
+            {
+                _readyTicks = 0;
+                _wasReady = true;
+            }
+            _readyTicks++;
+            if (_readyTicks < 60)
+                return;
+
+            _buttons ??= Enum.GetValues<SButton>().Where(b => b != SButton.None).ToArray();
+            foreach (var button in _buttons)
+                _helper.Input.Suppress(button);
+            _helper.Input.SuppressScrollWheel();
+        }
+        catch (Exception ex)
+        {
+            _monitor.Log($"INPUTGUARD: Apply fault | {ex.GetType().Name}: {ex.Message}", LogLevel.Error);
+            _monitor.Log(ex.ToString(), LogLevel.Error);
+        }
     }
 
     /// <summary>Check whether a button is currently suppressed (debug).</summary>

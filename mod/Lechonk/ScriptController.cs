@@ -55,7 +55,6 @@ public class ScriptController
         botTable["pressButtonTick"] = (Func<object?, object?>)(b => _botApi.PressButtonTick(b));
         botTable["tapButton"] = (Func<object?, object?>)(b => _botApi.TapButton(b));
         botTable["getKeybinds"] = (Func<object?>)(() => _botApi.GetKeybinds());
-        botTable["setGamepadControls"] = (Func<object?, object?>)(e => _botApi.SetGamepadControls(e));
         botTable["setInputLock"] = (Func<object?, object?>)(e => _botApi.SetInputLock(e));
         botTable["isInputLocked"] = (Func<object?>)(() => _botApi.IsInputLocked());
         botTable["isSuppressed"] = (Func<object?, object?>)(b => _botApi.IsSuppressed(b));
@@ -119,6 +118,10 @@ public class ScriptController
             -- movement keybinds (WASD by default) — DPad/gamepad input is only
             -- read in gamepad mode, which the game auto-disables without real
             -- hardware, so the keybinds are the reliable input path.
+            -- Directional movement without the agent needing to know key
+            -- names: bot.moveLeft/Right/Up/Down(ticks) hold the game's
+            -- configured movement key for `ticks` ticks. (bot.move(dir,
+            -- ticks) with dir 0=down, 1=left, 2=up, 3=right also works.)
             local DIRKEY = nil
             local function dirKey(dir)
                 if not DIRKEY then
@@ -132,6 +135,10 @@ public class ScriptController
                 if not b then return 'error: dir must be 0-3' end
                 return bot.pressButton(b, ticks)
             end
+            function bot.moveLeft(ticks)  return bot.move(1, ticks) end
+            function bot.moveRight(ticks) return bot.move(3, ticks) end
+            function bot.moveUp(ticks)    return bot.move(2, ticks) end
+            function bot.moveDown(ticks)  return bot.move(0, ticks) end
 
             -- bot.wait(ticks): yield once per tick for `ticks` ticks.
             function bot.wait(ticks)

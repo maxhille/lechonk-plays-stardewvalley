@@ -18,6 +18,28 @@ public class ModEntry : Mod
         {
             this.Monitor.Log("Lechonk mod initialising…");
 
+            // Never let a managed fault from this mod silently kill the process.
+            // Capture the full stack trace to the log so a crash shows *what* faulted,
+            // and keep the process alive where SMAPI can recover.
+            try
+            {
+                AppDomain.CurrentDomain.UnhandledException += (s, a) =>
+                {
+                    var ex = a.ExceptionObject as Exception;
+                    var typeName = ex?.GetType().Name ?? a.ExceptionObject?.ToString() ?? "unknown";
+                    this.Monitor.Log($"UNHANDLED-APP: type={typeName} | msg={ex?.Message}", LogLevel.Error);
+                    this.Monitor.Log(ex?.ToString(), LogLevel.Error);
+                };
+                // Fallback for faults that escape the per-hook try/catch. The
+                // AppDomain handler fires on any thread; it captures the full stack
+                // trace so a crash shows exactly what faulted instead of killing
+                // the process silently.
+            }
+            catch (Exception he)
+            {
+                this.Monitor.Log($"LECHONK: exception handlers failed to install: {he}", LogLevel.Error);
+            }
+
             var botApi = new BotApi(helper, this.Monitor);
             var inputGuard = new InputGuard(helper, this.Monitor);
             botApi.InputGuard = inputGuard;

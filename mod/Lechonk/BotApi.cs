@@ -128,33 +128,49 @@ public class BotApi
     /// <summary>Debug: list furniture in the current location as {name, tile, isBed}.</summary>
     public object? ListFurniture()
     {
-        var result = new List<object>();
-        foreach (var f in Game1.currentLocation.furniture)
-            result.Add(new Dictionary<string, object?>
-            {
-                ["name"] = f.Name,
-                ["type"] = f.GetType().Name,
-                ["x"] = f.TileLocation.X,
-                ["y"] = f.TileLocation.Y,
-                ["isBed"] = f is BedFurniture,
-            });
-        return result.ToArray();
+        try
+        {
+            var result = new List<object>();
+            foreach (var f in Game1.currentLocation.furniture)
+                result.Add(new Dictionary<string, object?>
+                {
+                    ["name"] = f.Name,
+                    ["type"] = f.GetType().Name,
+                    ["x"] = f.TileLocation.X,
+                    ["y"] = f.TileLocation.Y,
+                    ["isBed"] = f is BedFurniture,
+                });
+            return result.ToArray();
+        }
+        catch (Exception ex)
+        {
+            _monitor.Log($"listFurniture failed: {ex}", LogLevel.Warn);
+            return "error: " + ex.Message;
+        }
     }
 
     /// <summary>Get debug movement state: tile, CanMove, isMoving, and whether an emote/menu blocks.</summary>
     public object? GetMovementState()
     {
-        var f = Game1.player;
-        return new Dictionary<string, object?>
+        try
         {
-            ["tile"] = new Dictionary<string, object> { ["x"] = f.Tile.X, ["y"] = f.Tile.Y },
-            ["position"] = new Dictionary<string, object> { ["x"] = f.Position.X, ["y"] = f.Position.Y },
-            ["isInBed"] = f.isInBed.Value,
-            ["canMove"] = f.CanMove,
-            ["frozenAnimationPause"] = f.freezePause > 0,
-            ["activeMenu"] = Game1.activeClickableMenu?.GetType().Name,
-            ["currentLocation"] = Game1.currentLocation?.Name,
-        };
+            var f = Game1.player;
+            return new Dictionary<string, object?>
+            {
+                ["tile"] = new Dictionary<string, object> { ["x"] = f.Tile.X, ["y"] = f.Tile.Y },
+                ["position"] = new Dictionary<string, object> { ["x"] = f.Position.X, ["y"] = f.Position.Y },
+                ["isInBed"] = f.isInBed.Value,
+                ["canMove"] = f.CanMove,
+                ["frozenAnimationPause"] = f.freezePause > 0,
+                ["activeMenu"] = Game1.activeClickableMenu?.GetType().Name,
+                ["currentLocation"] = Game1.currentLocation?.Name,
+            };
+        }
+        catch (Exception ex)
+        {
+            _monitor.Log($"getMovementState failed: {ex}", LogLevel.Warn);
+            return "error: " + ex.Message;
+        }
     }
 
     /// <summary>Wait for the given number of ticks (yields once; tick budget counts the waits).</summary>
@@ -171,45 +187,53 @@ public class BotApi
     /// from the game's xTile map (GameLocation.map) and warp list.</summary>
     public object? GetMapSchema()
     {
-        var loc = Game1.currentLocation;
-        if (loc == null || loc.map == null)
-            return null;
-
-        int w = loc.map.Layers[0].LayerWidth;
-        int h = loc.map.Layers[0].LayerHeight;
-
-        var rows = new string[h];
-        for (int y = 0; y < h; y++)
+        try
         {
-            var sb = new System.Text.StringBuilder(w);
-            for (int x = 0; x < w; x++)
-                sb.Append(loc.isTilePassable(new Vector2(x, y)) ? '.' : '#');
-            rows[y] = sb.ToString();
-        }
+            var loc = Game1.currentLocation;
+            if (loc == null || loc.map == null)
+                return null;
 
-        var warps = new List<object>();
-        foreach (var warp in loc.warps)
-        {
-            warps.Add(new Dictionary<string, object?>
+            int w = loc.map.Layers[0].LayerWidth;
+            int h = loc.map.Layers[0].LayerHeight;
+
+            var rows = new string[h];
+            for (int y = 0; y < h; y++)
             {
-                ["x"] = warp.X,
-                ["y"] = warp.Y,
-                ["target"] = warp.TargetName,
-                ["targetX"] = warp.TargetX,
-                ["targetY"] = warp.TargetY,
-            });
-        }
+                var sb = new System.Text.StringBuilder(w);
+                for (int x = 0; x < w; x++)
+                    sb.Append(loc.isTilePassable(new Vector2(x, y)) ? '.' : '#');
+                rows[y] = sb.ToString();
+            }
 
-        var f = Game1.player;
-        return new Dictionary<string, object?>
+            var warps = new List<object>();
+            foreach (var warp in loc.warps)
+            {
+                warps.Add(new Dictionary<string, object?>
+                {
+                    ["x"] = warp.X,
+                    ["y"] = warp.Y,
+                    ["target"] = warp.TargetName,
+                    ["targetX"] = warp.TargetX,
+                    ["targetY"] = warp.TargetY,
+                });
+            }
+
+            var f = Game1.player;
+            return new Dictionary<string, object?>
+            {
+                ["location"] = loc.Name,
+                ["width"] = w,
+                ["height"] = h,
+                ["player"] = new Dictionary<string, object?> { ["x"] = f.Tile.X, ["y"] = f.Tile.Y },
+                ["walkable"] = rows,
+                ["warps"] = warps.ToArray(),
+            };
+        }
+        catch (Exception ex)
         {
-            ["location"] = loc.Name,
-            ["width"] = w,
-            ["height"] = h,
-            ["player"] = new Dictionary<string, object?> { ["x"] = f.Tile.X, ["y"] = f.Tile.Y },
-            ["walkable"] = rows,
-            ["warps"] = warps.ToArray(),
-        };
+            _monitor.Log($"getMapSchema failed: {ex}", LogLevel.Warn);
+            return "error: " + ex.Message;
+        }
     }
 
     /// <summary>Check if the tile at (x, y) is walkable.</summary>
@@ -224,12 +248,20 @@ public class BotApi
     /// <summary>Get the object on the tile at (x, y), or null.</summary>
     public object? GetTileObject(object? x, object? y)
     {
-        var location = Game1.currentLocation;
-        var tx = Convert.ToInt32(x);
-        var ty = Convert.ToInt32(y);
-        var obj = location.getObjectAt(tx, ty, false);
-        if (obj == null) return null;
-        return new Dictionary<string, object> { ["name"] = obj.Name, ["id"] = obj.ItemId };
+        try
+        {
+            var location = Game1.currentLocation;
+            var tx = Convert.ToInt32(x);
+            var ty = Convert.ToInt32(y);
+            var obj = location.getObjectAt(tx, ty, false);
+            if (obj == null) return null;
+            return new Dictionary<string, object> { ["name"] = obj.Name, ["id"] = obj.ItemId };
+        }
+        catch (Exception ex)
+        {
+            _monitor.Log($"getTileObject failed: {ex}", LogLevel.Warn);
+            return "error: " + ex.Message;
+        }
     }
 
     /// <summary>Return the player's inventory as a list of {name, count, id}.</summary>
@@ -342,18 +374,6 @@ public class BotApi
     public object? IsSuppressed(object? buttonName)
     {
         return InputGuard?.IsSuppressed(buttonName) ?? false;
-    }
-
-    /// <summary>Enable or disable gamepad controls (like plugging in a
-    /// controller). While enabled the game reads gamepad buttons — DPad and
-    /// left stick for movement, face buttons for action/tool/menus — and
-    /// ignores the keyboard movement keys. SMAPI synthesizes the thumbstick
-    /// axis from LeftThumbstick* button presses, so synthetic stick input
-    /// works without real hardware.</summary>
-    public object? SetGamepadControls(object? enabled)
-    {
-        Game1.options.gamepadControls = Convert.ToBoolean(enabled);
-        return Game1.options.gamepadControls;
     }
 
     /// <summary>Get the game's keybinds as semantic action → key name, resolved
@@ -521,10 +541,10 @@ public class BotApi
                 new { name = "bot.waitForWorldReady()", description = "Block until the world is loaded and ready (yields once per tick), then return true. Use after bot.loadGame()." },
                 new { name = "bot.pressButton(buttonName, ticks)", description = "Hold a gamepad-style button (DPadUp/DPadDown/DPadLeft/DPadRight, A, X, MouseLeft, ...) for `ticks` input ticks. Blocking; yields once per tick." },
                 new { name = "bot.tap(buttonName)", description = "Tap a button and wait one tick for the game to process it." },
-                new { name = "bot.move(dir, ticks)", description = "Hold a movement direction (0=down, 1=left, 2=up, 3=right) for `ticks` input ticks, using the game's configured movement keybinds. Convenience wrapper over bot.pressButton." },
+                new { name = "bot.moveLeft(ticks) / bot.moveRight(ticks) / bot.moveUp(ticks) / bot.moveDown(ticks)", description = "Walk in a direction for `ticks` game ticks. The agent never needs to know key names; the mod resolves the game's movement keybinds." },
+                new { name = "bot.move(dir, ticks)", description = "Same, with dir 0=down, 1=left, 2=up, 3=right." },
                 new { name = "bot.stop()", description = "Stop any held movement immediately." },
-                new { name = "bot.getKeybinds()", description = "Semantic action -> key name, resolved from the game's configured bindings. Includes gamepadControls flag." },
-                new { name = "bot.setGamepadControls(enabled)", description = "Enable/disable gamepad controls. Required for DPad/stick/face-button input to be read by the game." },
+                new { name = "bot.getKeybinds()", description = "Semantic action -> key name, resolved from the game's configured bindings. Movement uses the keyboard keybinds (WASD by default)." },
                 new { name = "bot.setInputLock(enabled)", description = "Lock out the user's physical keyboard/mouse/gamepad input so it can't interfere with the bot. Also auto-applies while any script is running." },
                 new { name = "bot.isInputLocked()", description = "Whether the user's physical input is locked out." },
                 new { name = "bot.isSuppressed(buttonName)", description = "Debug: whether a button is currently suppressed." },

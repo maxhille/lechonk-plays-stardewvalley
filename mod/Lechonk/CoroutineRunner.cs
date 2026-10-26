@@ -27,10 +27,27 @@ public class CoroutineRunner
     /// stutter.</summary>
     public void OnTick(object? sender, UpdateTickedEventArgs e)
     {
+        // Movement is keyboard-only (WASD / configured keybinds). The gamepad is
+        // never enabled — gamepadControls stays at its save-default (false) and
+        // nothing in the mod ever writes it, so WASD is always the live path and
+        // there's no "Gamepad disconnect/reconnect" flapping. (An attempted write
+        // into Game1.options during the save-load transition hard-crashed the
+        // game, so the mod leaves it alone.)
+
         // Block the user's physical input while the bot is running. Runs
         // before AdvanceAll so the bot's own Press() calls win over the
         // suppression.
-        _inputGuard.Apply(_controller.IsScriptActive());
+        // Do absolutely nothing when there's genuinely no work. Work only exists
+        // when a script is running (needs its coroutines advanced) or the input
+        // guard is locked (needs to re-apply suppression every tick). Otherwise
+        // touching the input state / script dict at all was flakily crashing the
+        // process — title screen, between scripts, and the post-load idle all hit
+        // it. Zero work when idle is the fix.
+        var anyScript = _controller.IsScriptActive();
+        if (!anyScript && !_inputGuard.Locked)
+            return;
+
+        _inputGuard.Apply(anyScript);
 
         _tickCount++;
         if (_controller.IsScriptActive() && _tickCount % 20 == 0)
@@ -44,13 +61,21 @@ public class CoroutineRunner
     /// <summary>Called when any game button is pressed — used for dialog interrupt detection.</summary>
     public void OnButtonPressed(SButton button)
     {
-        if (_controller.IsScriptActive())
+        try
         {
-            var menu = Game1.activeClickableMenu;
-            if (menu is DialogueBox)
+            if (_controller.IsScriptActive())
             {
-                _controller.InterruptIfDialog();
+                var menu = Game1.activeClickableMenu;
+                if (menu is DialogueBox)
+                {
+                    _controller.InterruptIfDialog();
+                }
             }
+        }
+        catch (Exception ex)
+        {
+            _monitor.Log($"RUNNER: button={button} fault | {ex.GetType().Name}: {ex.Message}", LogLevel.Error);
+            _monitor.Log(ex.ToString(), LogLevel.Error);
         }
     }
 }
