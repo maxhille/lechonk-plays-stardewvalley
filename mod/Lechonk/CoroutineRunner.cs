@@ -10,18 +10,25 @@ namespace Lechonk;
 public class CoroutineRunner
 {
     private readonly ScriptController _controller;
+    private readonly InputGuard _inputGuard;
     private readonly IMonitor _monitor;
     private int _tickCount;
 
-    public CoroutineRunner(ScriptController controller, IMonitor monitor)
+    public CoroutineRunner(ScriptController controller, InputGuard inputGuard, IMonitor monitor)
     {
         _controller = controller;
+        _inputGuard = inputGuard;
         _monitor = monitor;
     }
 
     /// <summary>Called every SMAPI update tick. Advances all active coroutines every 4 ticks.</summary>
     public void OnTick(object? sender, UpdateTickedEventArgs e)
     {
+        // Block the user's physical input while the bot is running. Runs
+        // before AdvanceAll so the bot's own Press() calls win over the
+        // suppression.
+        _inputGuard.Apply(_controller.IsScriptActive());
+
         _tickCount++;
         if (_controller.IsScriptActive() && _tickCount % 20 == 0)
         {

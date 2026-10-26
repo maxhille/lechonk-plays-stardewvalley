@@ -7,5 +7,8 @@ OUT="${1:-/tmp/lechonk-screenshot.png}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 read -r X Y W H < <(python3 "$SCRIPT_DIR/find_window.py")
+# Raise the game window first so overlapping windows don't occlude the shot.
+swaymsg '[class="StardewValley"] focus' >/dev/null
+sleep 0.3
 grim -g "${X},${Y} ${W}x${H}" "$OUT"
 echo "$OUT"

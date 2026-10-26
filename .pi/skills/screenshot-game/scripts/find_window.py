@@ -10,10 +10,11 @@ import sys
 
 
 def find(node):
+    """Return the game window's rect. The game's window class is exactly
+    "StardewValley"; match that first. Never match on the title alone —
+    a browser tab on the Stardew wiki also contains "Stardew Valley"."""
     props = node.get("window_properties") or {}
-    cls = props.get("class") or ""
-    name = node.get("name") or ""
-    if "StardewValley" in cls or "Stardew Valley" in name:
+    if props.get("class") == "StardewValley":
         return node["rect"]
     for child in node.get("nodes", []) + node.get("floating_nodes", []):
         rect = find(child)

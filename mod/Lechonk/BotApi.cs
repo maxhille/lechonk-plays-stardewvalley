@@ -19,6 +19,9 @@ public class BotApi
     private readonly IMonitor _monitor;
     private readonly IModHelper _helper;
 
+    /// <summary>Set in Entry after construction; used for input isolation.</summary>
+    public InputGuard? InputGuard { get; set; }
+
     /// <summary>Marker string that tells the Lua shim to yield this tick.
     /// Scripts never see it: the shim converts it to coroutine.yield().</summary>
     public const string Yield = "__lechonk_yield__";
@@ -31,42 +34,40 @@ public class BotApi
         _monitor = monitor;
     }
 
-    // ── Movement ──────────────────────────────────────────────────────
+    // ── Input (gamepad-style buttons) ─────────────────────────────────
 
-    /// <summary>Hold a movement direction (0=down, 1=left, 2=up, 3=right) for one
-    /// tick: sets the movement flag and returns the yield marker. The Lua shim
-    /// calls this once per tick for `bot.move(dir, ticks)`, and calls
-    /// <see cref="Stop"/> when the tick count runs out. Also clears any stale
-    /// opposite-direction flags so the farmer doesn't walk in place.</summary>
-    public object? MoveTick(object? dir)
+    /// <summary>Press a button for one tick and return the yield marker.
+    /// <paramref name="buttonName"/> is any SButton name: gamepad buttons
+    /// (DPadUp/DPadDown/DPadLeft/DPadRight, LeftThumbstickUp/..., A, B, X, Y,
+    /// LeftShoulder, RightShoulder, ...), keyboard keys (W, E, Escape, ...),
+    /// or mouse buttons (MouseLeft, MouseRight). The press goes through
+    /// SMAPI's input helper — equivalent to physically holding the button for
+    /// one input tick; the game's own input pipeline does the rest.
+    /// The Lua shim loops this for bot.pressButton(name, ticks).</summary>
+    public object? PressButtonTick(object? buttonName)
     {
-        var d = Convert.ToInt32(dir);
-        // Movement keybinds are WASD by default (arrows are not bound), so
-        // press the movement keys rather than the arrow keys.
-        var button = d switch
-        {
-            0 => SButton.S,
-            1 => SButton.A,
-            2 => SButton.W,
-            3 => SButton.D,
-            _ => (SButton?)null,
-        };
-        if (button == null)
-            return null;
-
-        // Synthesize the key press through SMAPI's input helper: equivalent
-        // to the player physically holding the key for one input tick. The
-        // game's own UpdateControlInput then walks the farmer, with collision
-        // and animations handled by the vanilla input path.
-        _helper.Input.Press(button.Value);
+        var name = buttonName?.ToString();
+        if (string.IsNullOrEmpty(name) || !Enum.TryParse<SButton>(name, true, out var button))
+            return $"error: unknown button '{name}'";
+        _helper.Input.Press(button);
         return Yield;
     }
 
-    /// <summary>Stop any held movement immediately and restore free movement.</summary>
+    /// <summary>Tap a button (single input tick, no yield). Pair with
+    /// bot.wait(1) or use bot.tap() to let the game process it.</summary>
+    public object? TapButton(object? buttonName)
+    {
+        var name = buttonName?.ToString();
+        if (string.IsNullOrEmpty(name) || !Enum.TryParse<SButton>(name, true, out var button))
+            return $"error: unknown button '{name}'";
+        _helper.Input.Press(button);
+        return null;
+    }
+
+    /// <summary>Stop any held movement immediately.</summary>
     public void Stop()
     {
-        var farmer = Game1.player;
-        farmer.Halt();
+        Game1.player.Halt();
     }
 
     /// <summary>Wake the farmer up from bed. Farmer.Update re-sets isInBed while the
@@ -164,11 +165,51 @@ public class BotApi
 
     // ── State ─────────────────────────────────────────────────────────
 
-    /// <summary>Return the farmer's current tile coordinates as {x, y}.</summary>
-    public object? GetPosition()
+    /// <summary>Map schema for the current location: name, tile dimensions, the
+    /// player's tile, a walkability grid ('.' walkable, '#' blocked, one string
+    /// per row), and the warp points (doors/exits with their targets). Built
+    /// from the game's xTile map (GameLocation.map) and warp list.</summary>
+    public object? GetMapSchema()
     {
+        var loc = Game1.currentLocation;
+        if (loc == null || loc.map == null)
+            return null;
+
+        int w = loc.map.Layers[0].LayerWidth;
+        int h = loc.map.Layers[0].LayerHeight;
+
+        var rows = new string[h];
+        for (int y = 0; y < h; y++)
+        {
+            var sb = new System.Text.StringBuilder(w);
+            for (int x = 0; x < w; x++)
+                sb.Append(loc.isTilePassable(new Vector2(x, y)) ? '.' : '#');
+            rows[y] = sb.ToString();
+        }
+
+        var warps = new List<object>();
+        foreach (var warp in loc.warps)
+        {
+            warps.Add(new Dictionary<string, object?>
+            {
+                ["x"] = warp.X,
+                ["y"] = warp.Y,
+                ["target"] = warp.TargetName,
+                ["targetX"] = warp.TargetX,
+                ["targetY"] = warp.TargetY,
+            });
+        }
+
         var f = Game1.player;
-        return new Dictionary<string, object> { ["x"] = f.Tile.X, ["y"] = f.Tile.Y };
+        return new Dictionary<string, object?>
+        {
+            ["location"] = loc.Name,
+            ["width"] = w,
+            ["height"] = h,
+            ["player"] = new Dictionary<string, object?> { ["x"] = f.Tile.X, ["y"] = f.Tile.Y },
+            ["walkable"] = rows,
+            ["warps"] = warps.ToArray(),
+        };
     }
 
     /// <summary>Check if the tile at (x, y) is walkable.</summary>
@@ -267,6 +308,69 @@ public class BotApi
         return Context.IsWorldReady;
     }
 
+    // ── Input ─────────────────────────────────────────────────────────
+
+    /// <summary>Lock or unlock the user's physical input. While locked (or while
+    /// any script is running), the game ignores the user's keyboard/mouse/gamepad
+    /// input entirely — only the bot's synthetic button presses register.</summary>
+    public object? SetInputLock(object? enabled)
+    {
+        if (InputGuard == null)
+            return "error: input guard not initialised";
+        InputGuard.Locked = Convert.ToBoolean(enabled);
+        return InputGuard.Locked;
+    }
+
+    /// <summary>Whether the user's physical input is currently locked out.</summary>
+    public object? IsInputLocked()
+    {
+        return InputGuard?.Locked ?? false;
+    }
+
+    /// <summary>Check whether a button is currently suppressed (debug).</summary>
+    public object? IsSuppressed(object? buttonName)
+    {
+        return InputGuard?.IsSuppressed(buttonName) ?? false;
+    }
+
+    /// <summary>Enable or disable gamepad controls (like plugging in a
+    /// controller). While enabled the game reads gamepad buttons — DPad and
+    /// left stick for movement, face buttons for action/tool/menus — and
+    /// ignores the keyboard movement keys. SMAPI synthesizes the thumbstick
+    /// axis from LeftThumbstick* button presses, so synthetic stick input
+    /// works without real hardware.</summary>
+    public object? SetGamepadControls(object? enabled)
+    {
+        Game1.options.gamepadControls = Convert.ToBoolean(enabled);
+        return Game1.options.gamepadControls;
+    }
+
+    /// <summary>Get the game's keybinds as semantic action → key name, resolved
+    /// from Game1.options so they follow the player's configured bindings.</summary>
+    public object? GetKeybinds()
+    {
+        var o = Game1.options;
+        string Key(InputButton[] buttons) =>
+            buttons.Length > 0 ? ((SButton)buttons[0].key).ToString() : "";
+        return new Dictionary<string, object?>
+        {
+            ["action"] = Key(o.actionButton),
+            ["useTool"] = Key(o.useToolButton),
+            ["cancel"] = Key(o.cancelButton),
+            ["menu"] = Key(o.menuButton),
+            ["map"] = Key(o.mapButton),
+            ["journal"] = Key(o.journalButton),
+            ["emote"] = Key(o.emoteButton),
+            ["run"] = Key(o.runButton),
+            ["chat"] = Key(o.chatButton),
+            ["moveUp"] = Key(o.moveUpButton),
+            ["moveDown"] = Key(o.moveDownButton),
+            ["moveLeft"] = Key(o.moveLeftButton),
+            ["moveRight"] = Key(o.moveRightButton),
+            ["gamepadControls"] = o.gamepadControls,
+        };
+    }
+
     // ── Menus ─────────────────────────────────────────────────────────
 
     /// <summary>Get info about the currently active menu, or null.</summary>
@@ -275,10 +379,12 @@ public class BotApi
         var menu = Game1.activeClickableMenu;
         if (menu == null) return null;
 
-        return new
+        // Return a Dictionary, not an anonymous object: MoonSharp cannot
+        // convert anonymous CLR types into Lua values.
+        return new Dictionary<string, object?>
         {
-            type = menu.GetType().Name,
-            buttonCount = menu is IClickableMenu cm ? cm.getComponentWithID(0) != null ? 1 : 0 : 0
+            ["type"] = menu.GetType().Name,
+            ["buttonCount"] = menu is IClickableMenu cm ? cm.getComponentWithID(0) != null ? 1 : 0 : 0
         };
     }
 
@@ -296,12 +402,12 @@ public class BotApi
             var comp = menu.getComponentWithID(i);
             if (comp != null)
             {
-                result.Add(new
+                result.Add(new Dictionary<string, object?>
                 {
-                    index = i,
-                    label = comp.label ?? "",
-                    visible = comp.visible,
-                    myID = comp.myID
+                    ["index"] = i,
+                    ["label"] = comp.label ?? "",
+                    ["visible"] = comp.visible,
+                    ["myID"] = comp.myID
                 });
             }
             else
@@ -401,11 +507,18 @@ public class BotApi
                 new { name = "bot.loadGame(slotName)", description = "From the title screen, load the given save folder. Returns 'loading <name>' or 'error: ...'." },
                 new { name = "bot.exitToTitle()", description = "Quit the current save back to the title screen." },
                 new { name = "bot.isWorldReady()", description = "True once a save is loaded and the world is ready." },
-                new { name = "bot.move(dir, ticks)", description = "Hold a movement direction (0=down, 1=left, 2=up, 3=right) for `ticks` game ticks, then stop. Blocking; yields once per tick." },
+                new { name = "bot.pressButton(buttonName, ticks)", description = "Hold a gamepad-style button (DPadUp/DPadDown/DPadLeft/DPadRight, A, X, MouseLeft, ...) for `ticks` input ticks. Blocking; yields once per tick." },
+                new { name = "bot.tap(buttonName)", description = "Tap a button and wait one tick for the game to process it." },
+                new { name = "bot.move(dir, ticks)", description = "Hold a movement direction (0=down, 1=left, 2=up, 3=right) for `ticks` input ticks, using the game's configured movement keybinds. Convenience wrapper over bot.pressButton." },
                 new { name = "bot.stop()", description = "Stop any held movement immediately." },
+                new { name = "bot.getKeybinds()", description = "Semantic action -> key name, resolved from the game's configured bindings. Includes gamepadControls flag." },
+                new { name = "bot.setGamepadControls(enabled)", description = "Enable/disable gamepad controls. Required for DPad/stick/face-button input to be read by the game." },
+                new { name = "bot.setInputLock(enabled)", description = "Lock out the user's physical keyboard/mouse/gamepad input so it can't interfere with the bot. Also auto-applies while any script is running." },
+                new { name = "bot.isInputLocked()", description = "Whether the user's physical input is locked out." },
+                new { name = "bot.isSuppressed(buttonName)", description = "Debug: whether a button is currently suppressed." },
                 new { name = "bot.wakeUp()", description = "Get out of bed (teleports to the bed exit spot). Needed after loading a save made in bed." },
                 new { name = "bot.wait(ticks)", description = "Wait for the given number of ticks." },
-                new { name = "bot.getPosition()", description = "Return {x, y} of the farmer's current tile." },
+                new { name = "bot.getMapSchema()", description = "Map schema for the current location: { location, width, height, player {x, y}, walkable (grid rows of '.'/'#'), warps [{x, y, target, targetX, targetY}] }." },
                 new { name = "bot.isWalkable(x, y)", description = "Check if tile (x, y) is walkable." },
                 new { name = "bot.getTileObject(x, y)", description = "Get object at tile (x, y) or null." },
                 new { name = "bot.getInventory()", description = "List of {name, count, id} for inventory items." },

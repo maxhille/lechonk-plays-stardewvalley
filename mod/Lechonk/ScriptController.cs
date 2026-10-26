@@ -52,10 +52,16 @@ public class ScriptController
         // them so the marker becomes coroutine.yield() and the script ticks
         // with the game.
         botTable["print"] = (Func<object?, object?>)(msg => { _botApi.Print(msg?.ToString()); return null; });
-        botTable["moveTick"] = (Func<object?, object?>)(d => _botApi.MoveTick(d));
+        botTable["pressButtonTick"] = (Func<object?, object?>)(b => _botApi.PressButtonTick(b));
+        botTable["tapButton"] = (Func<object?, object?>)(b => _botApi.TapButton(b));
+        botTable["getKeybinds"] = (Func<object?>)(() => _botApi.GetKeybinds());
+        botTable["setGamepadControls"] = (Func<object?, object?>)(e => _botApi.SetGamepadControls(e));
+        botTable["setInputLock"] = (Func<object?, object?>)(e => _botApi.SetInputLock(e));
+        botTable["isInputLocked"] = (Func<object?>)(() => _botApi.IsInputLocked());
+        botTable["isSuppressed"] = (Func<object?, object?>)(b => _botApi.IsSuppressed(b));
         botTable["stop"] = (Func<object?, object?>)(_ => { _botApi.Stop(); return null; });
         botTable["wait"] = (Func<object?, object?>)(t => _botApi.Wait(t));
-        botTable["getPosition"] = (Func<object?>)(() => _botApi.GetPosition());
+        botTable["getMapSchema"] = (Func<object?>)(() => _botApi.GetMapSchema());
         botTable["isWalkable"] = (Func<object?, object?, object?>)( (x, y) => _botApi.IsWalkable(x, y) );
         botTable["getTileObject"] = (Func<object?, object?, object?>)( (x, y) => _botApi.GetTileObject(x, y) );
         botTable["getInventory"] = (Func<object?>)(() => _botApi.GetInventory());
@@ -83,15 +89,44 @@ public class ScriptController
         const string prelude = @"
             local Y = '__lechonk_yield__'
 
-            -- bot.move(dir, ticks): hold a movement direction for `ticks`
-            -- game ticks, yielding once per tick, then stop.
-            function bot.move(dir, ticks)
+            -- bot.pressButton(name, ticks): hold a gamepad-style button
+            -- (DPadUp/DPadDown/DPadLeft/DPadRight, A, X, MouseLeft, ...) for
+            -- `ticks` input ticks, yielding once per tick. The button is
+            -- released automatically when the loop ends.
+            function bot.pressButton(name, ticks)
                 ticks = ticks or 1
                 for i = 1, ticks do
-                    local ret = bot.moveTick(dir)
-                    if ret == Y then coroutine.yield() end
+                    local ret = bot.pressButtonTick(name)
+                    if ret ~= Y then return ret end
+                    coroutine.yield()
                 end
-                bot.stop()
+            end
+
+            -- bot.tap(name): tap a button, then wait one tick so the game
+            -- processes the press.
+            function bot.tap(name)
+                local ret = bot.tapButton(name)
+                if ret ~= nil then return ret end
+                coroutine.yield()
+            end
+
+            -- bot.move(dir, ticks): hold a movement direction (0=down, 1=left,
+            -- 2=up, 3=right) for `ticks` input ticks. Uses the game's configured
+            -- movement keybinds (WASD by default) — DPad/gamepad input is only
+            -- read in gamepad mode, which the game auto-disables without real
+            -- hardware, so the keybinds are the reliable input path.
+            local DIRKEY = nil
+            local function dirKey(dir)
+                if not DIRKEY then
+                    local kb = bot.getKeybinds()
+                    DIRKEY = { [0] = kb.moveDown, [1] = kb.moveLeft, [2] = kb.moveUp, [3] = kb.moveRight }
+                end
+                return DIRKEY[dir]
+            end
+            function bot.move(dir, ticks)
+                local b = dirKey(dir)
+                if not b then return 'error: dir must be 0-3' end
+                return bot.pressButton(b, ticks)
             end
 
             -- bot.wait(ticks): yield once per tick for `ticks` ticks.
@@ -101,6 +136,7 @@ public class ScriptController
                     coroutine.yield()
                 end
             end
+
         ";
         script.DoString(prelude);
 
@@ -165,7 +201,20 @@ public class ScriptController
                 continue;
             }
 
-            var result = state.Coro.Resume();
+            MoonSharp.Interpreter.DynValue result;
+            try
+            {
+                result = state.Coro.Resume();
+            }
+            catch (Exception ex)
+            {
+                // Script threw (runtime error). Record and remove — a dead
+                // coroutine must never be resumed again.
+                _monitor.Log($"Script {id}: runtime error: {ex.Message}", LogLevel.Error);
+                _botApi.RecordResult(id, "", null, $"script_error: {ex.Message}", state.TicksUsed, ScriptEvent.Cancelled);
+                _activeScripts.TryRemove(id, out _);
+                continue;
+            }
             state.TicksUsed += ticks;
 
             if (state.TicksUsed >= state.TickBudget)

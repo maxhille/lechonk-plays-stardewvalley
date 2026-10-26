@@ -19,8 +19,10 @@ public class ModEntry : Mod
             this.Monitor.Log("Lechonk mod initialising…");
 
             var botApi = new BotApi(helper, this.Monitor);
+            var inputGuard = new InputGuard(helper, this.Monitor);
+            botApi.InputGuard = inputGuard;
             var controller = new ScriptController(botApi, this.Monitor);
-            var runner = new CoroutineRunner(controller, this.Monitor);
+            var runner = new CoroutineRunner(controller, inputGuard, this.Monitor);
 
             // Hook SMAPI events
             helper.Events.GameLoop.UpdateTicked += runner.OnTick;
