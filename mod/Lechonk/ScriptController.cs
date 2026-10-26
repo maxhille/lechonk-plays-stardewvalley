@@ -56,7 +56,6 @@ public class ScriptController
             botTable["listSaves"] = (Func<object?>)(() => _botApi.ListSaves());
             botTable["loadGame"] = (Func<object?, object?>)(slotName => _botApi.LoadGame(slotName));
             botTable["exitToTitle"] = (Func<object?, object?>)(_ => _botApi.ExitToTitle());
-            botTable["isWorldReady"] = (Func<object?>)(() => _botApi.IsWorldReady());
             botTable["waitForWorldReadyTick"] = (Func<object?, object?>)(_ => _botApi.WaitForWorldReady());
             botTable["wakeUp"] = (Func<object?, object?>)(_ => { _botApi.WakeUp(); return null; });
             botTable["listFurniture"] = (Func<object?>)(() => _botApi.ListFurniture());

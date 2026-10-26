@@ -22,8 +22,6 @@ public class BotApi
     /// Scripts never see it: the shim converts it to coroutine.yield().</summary>
     public const string Yield = "__lechonk_yield__";
 
-
-
     public BotApi(IModHelper helper, IMonitor monitor)
     {
         _helper = helper;
@@ -290,20 +288,14 @@ public class BotApi
     }
 
     /// <summary>Block the script until the world is loaded and ready, yielding
-    /// once per tick. Returns true when ready. Use after bot.loadGame() instead
-    /// of polling bot.isWorldReady() in a loop — the script terminates as soon
-    /// as the world is up, so the next script can start playing immediately.</summary>
+    /// once per tick. Returns true when ready. Use after bot.loadGame(). The script
+    /// terminates as soon as the world is up, so the next script can start playing
+    /// immediately.</summary>
     public object? WaitForWorldReady()
     {
         if (Context.IsWorldReady)
             return true;
         return Yield;
-    }
-
-    /// <summary>Check whether a save is loaded and the world is ready.</summary>
-    public bool IsWorldReady()
-    {
-        return Context.IsWorldReady;
     }
 
     // ── Input ─────────────────────────────────────────────────────────
@@ -494,7 +486,6 @@ public class BotApi
                 new { name = "bot.listSaves()", description = "List save folder names (e.g. Max_129552567)." },
                 new { name = "bot.loadGame(slotName)", description = "From the title screen, load the given save folder. Returns 'loading <name>' or 'error: ...'." },
                 new { name = "bot.exitToTitle()", description = "Quit the current save back to the title screen." },
-                new { name = "bot.isWorldReady()", description = "True once a save is loaded and the world is ready." },
                 new { name = "bot.waitForWorldReady()", description = "Block until the world is loaded and ready (yields once per tick), then return true. Use after bot.loadGame()." },
                 new { name = "bot.pressButton(buttonName, ticks)", description = "Hold a gamepad-style button (DPadUp/DPadDown/DPadLeft/DPadRight, A, X, MouseLeft, ...) for `ticks` input ticks. Blocking; yields once per tick." },
                 new { name = "bot.tap(buttonName)", description = "Tap a button and wait one tick for the game to process it." },

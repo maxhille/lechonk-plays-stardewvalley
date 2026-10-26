@@ -122,9 +122,9 @@ Lua scripts see a `bot` table:
   2=up, 3=right) for `ticks` input ticks. The game runs in gamepad mode; the
   controller is the sole input source. `bot.stop()` halts immediately.
 - **Saves:** `bot.listSaves()`, `bot.loadGame(slotName)` (from the title screen,
-  skips character creation), `bot.exitToTitle()`, `bot.isWorldReady()`,
-  `bot.wakeUp()` (teleports off the bed footprint — required after loading a
-  save made in bed, the game re-flags `isInBed` while standing on a bed tile).
+  skips character creation), `bot.exitToTitle()`, `bot.wakeUp()` (teleports off
+  the bed footprint — required after loading a save made in bed, the game re-flags
+  `isInBed` while standing on a bed tile).
 - **State:** `bot.getPosition()`, `bot.isWalkable(x, y)`, `bot.getTileObject(x, y)`,
   `bot.getInventory()`, `bot.getTime()`, `bot.getDate()`, `bot.wait(ticks)`.
 - **Menus/dialogue:** `bot.getMenuType()` (type, buttonCount, **text** — the
