@@ -498,6 +498,7 @@ public class BotApi
                 new { name = "bot.isWalkable(x, y)", description = "Check if tile (x, y) is walkable." },
                 new { name = "bot.getTileObject(x, y)", description = "Get object at tile (x, y) or null." },
                 new { name = "bot.getInventory()", description = "List of {name, count, id} for inventory items." },
+                new { name = "bot.listFurniture()", description = "All furniture in the current location: {name, x, y}." },
                 new { name = "bot.getTime()", description = "Current in-game hour (0-24)." },
                 new { name = "bot.getDate()", description = "Return {season, day}." },
                 new { name = "bot.getMenuType()", description = "Info about the active menu, or null." },
