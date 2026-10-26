@@ -36,14 +36,14 @@ public class BotApi
 
     // ── Input (gamepad-style buttons) ─────────────────────────────────
 
-    /// <summary>Press a button for one tick and return the yield marker.
+    /// <summary>Press a button (hold it down) and return the yield marker.
     /// <paramref name="buttonName"/> is any SButton name: gamepad buttons
     /// (DPadUp/DPadDown/DPadLeft/DPadRight, LeftThumbstickUp/..., A, B, X, Y,
     /// LeftShoulder, RightShoulder, ...), keyboard keys (W, E, Escape, ...),
-    /// or mouse buttons (MouseLeft, MouseRight). The press goes through
-    /// SMAPI's input helper — equivalent to physically holding the button for
-    /// one input tick; the game's own input pipeline does the rest.
-    /// The Lua shim loops this for bot.pressButton(name, ticks).</summary>
+    /// or mouse buttons (MouseLeft, MouseRight). The button stays down until
+    /// <see cref="ReleaseButton"/> is called — a continuous hold, like a
+    /// player keeping the key pressed. The Lua shim yields once per tick
+    /// between press and release for bot.pressButton(name, ticks).</summary>
     public object? PressButtonTick(object? buttonName)
     {
         var name = buttonName?.ToString();
@@ -302,6 +302,17 @@ public class BotApi
         return "exiting to title";
     }
 
+    /// <summary>Block the script until the world is loaded and ready, yielding
+    /// once per tick. Returns true when ready. Use after bot.loadGame() instead
+    /// of polling bot.isWorldReady() in a loop — the script terminates as soon
+    /// as the world is up, so the next script can start playing immediately.</summary>
+    public object? WaitForWorldReady()
+    {
+        if (Context.IsWorldReady)
+            return true;
+        return Yield;
+    }
+
     /// <summary>Check whether a save is loaded and the world is ready.</summary>
     public bool IsWorldReady()
     {
@@ -507,6 +518,7 @@ public class BotApi
                 new { name = "bot.loadGame(slotName)", description = "From the title screen, load the given save folder. Returns 'loading <name>' or 'error: ...'." },
                 new { name = "bot.exitToTitle()", description = "Quit the current save back to the title screen." },
                 new { name = "bot.isWorldReady()", description = "True once a save is loaded and the world is ready." },
+                new { name = "bot.waitForWorldReady()", description = "Block until the world is loaded and ready (yields once per tick), then return true. Use after bot.loadGame()." },
                 new { name = "bot.pressButton(buttonName, ticks)", description = "Hold a gamepad-style button (DPadUp/DPadDown/DPadLeft/DPadRight, A, X, MouseLeft, ...) for `ticks` input ticks. Blocking; yields once per tick." },
                 new { name = "bot.tap(buttonName)", description = "Tap a button and wait one tick for the game to process it." },
                 new { name = "bot.move(dir, ticks)", description = "Hold a movement direction (0=down, 1=left, 2=up, 3=right) for `ticks` input ticks, using the game's configured movement keybinds. Convenience wrapper over bot.pressButton." },

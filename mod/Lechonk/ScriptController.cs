@@ -71,6 +71,7 @@ public class ScriptController
         botTable["loadGame"] = (Func<object?, object?>)(slotName => _botApi.LoadGame(slotName));
         botTable["exitToTitle"] = (Func<object?, object?>)(_ => _botApi.ExitToTitle());
         botTable["isWorldReady"] = (Func<object?>)(() => _botApi.IsWorldReady());
+        botTable["waitForWorldReadyTick"] = (Func<object?, object?>)(_ => _botApi.WaitForWorldReady());
         botTable["wakeUp"] = (Func<object?, object?>)(_ => { _botApi.WakeUp(); return null; });
         botTable["listFurniture"] = (Func<object?>)(() => _botApi.ListFurniture());
         botTable["getMovementState"] = (Func<object?>)(() => _botApi.GetMovementState());
@@ -89,16 +90,19 @@ public class ScriptController
         const string prelude = @"
             local Y = '__lechonk_yield__'
 
-            -- bot.pressButton(name, ticks): hold a gamepad-style button
-            -- (DPadUp/DPadDown/DPadLeft/DPadRight, A, X, MouseLeft, ...) for
-            -- `ticks` input ticks, yielding once per tick. The button is
-            -- released automatically when the loop ends.
+            -- bot.pressButton(name, ticks): hold a button continuously for
+            -- `ticks` game ticks. SMAPI's Press lasts exactly one input tick
+            -- (it clears synthetic presses every tick), so the loop re-presses
+            -- every tick — the game sees the button held down continuously,
+            -- like a player keeping the key pressed. After the last tick the
+            -- button auto-releases; there is nothing to release explicitly.
             function bot.pressButton(name, ticks)
                 ticks = ticks or 1
+                local ret = bot.pressButtonTick(name)
+                if ret ~= Y then return ret end
                 for i = 1, ticks do
-                    local ret = bot.pressButtonTick(name)
-                    if ret ~= Y then return ret end
                     coroutine.yield()
+                    if i < ticks then bot.pressButtonTick(name) end
                 end
             end
 
@@ -133,6 +137,18 @@ public class ScriptController
             function bot.wait(ticks)
                 ticks = ticks or 1
                 for i = 1, ticks do
+                    coroutine.yield()
+                end
+            end
+
+            -- bot.waitForWorldReady(): block until the world is loaded and
+            -- ready, yielding once per tick. Returns true when ready. Call
+            -- after bot.loadGame() so the script ends the moment the world
+            -- is up.
+            function bot.waitForWorldReady()
+                while true do
+                    local ret = bot.waitForWorldReadyTick()
+                    if ret ~= Y then return ret end
                     coroutine.yield()
                 end
             end

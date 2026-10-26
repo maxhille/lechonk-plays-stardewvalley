@@ -21,7 +21,10 @@ public class CoroutineRunner
         _monitor = monitor;
     }
 
-    /// <summary>Called every SMAPI update tick. Advances all active coroutines every 4 ticks.</summary>
+    /// <summary>Called every SMAPI update tick. Advances all active coroutines
+    /// every tick — button holds re-press every game tick (SMAPI clears
+    /// synthetic presses each tick), so skipping ticks would make held buttons
+    /// stutter.</summary>
     public void OnTick(object? sender, UpdateTickedEventArgs e)
     {
         // Block the user's physical input while the bot is running. Runs
@@ -35,10 +38,7 @@ public class CoroutineRunner
             var active = _controller.IsScriptActive() ? "yes" : "no";
             _monitor.Log($"Runner: tick={_tickCount}, active scripts={active}", LogLevel.Trace);
         }
-        if (e.IsMultipleOf(4))
-        {
-            _controller.AdvanceAll(1);
-        }
+        _controller.AdvanceAll(1);
     }
 
     /// <summary>Called when any game button is pressed — used for dialog interrupt detection.</summary>
