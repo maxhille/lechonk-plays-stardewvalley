@@ -44,7 +44,7 @@ func main() {
 	model.addLine(fmt.Sprintf("game dir: %s", gd))
 	model.addLine(fmt.Sprintf("debug api: http://127.0.0.1:%d  (GET /status, POST /launch /stop /restart)", debugPort))
 
-	p := tea.NewProgram(model)
+	p := tea.NewProgram(model, tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
 		// Ctrl+C (interrupt) or fatal: make sure the game is down too.
 		gm.Stop()
