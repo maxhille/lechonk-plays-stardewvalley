@@ -57,7 +57,6 @@ public class ScriptController
             botTable["loadGame"] = (Func<object?, object?>)(slotName => _botApi.LoadGame(slotName));
             botTable["exitToTitle"] = (Func<object?, object?>)(_ => _botApi.ExitToTitle());
             botTable["waitForWorldReadyTick"] = (Func<object?, object?>)(_ => _botApi.WaitForWorldReady());
-            botTable["wakeUp"] = (Func<object?, object?>)(_ => { _botApi.WakeUp(); return null; });
             botTable["listFurniture"] = (Func<object?>)(() => _botApi.ListFurniture());
             botTable["getMenuType"] = (Func<object?>)(() => _botApi.GetMenuType());
             botTable["getMenuButtons"] = (Func<object?>)(() => _botApi.GetMenuButtons());
@@ -71,43 +70,24 @@ public class ScriptController
             const string prelude = @"
                 local Y = '__lechonk_yield__'
 
-                function bot.pressButton(name, ticks)
-                    ticks = ticks or 1
-                    local ret = bot.tapButton(name)
-                    if ret ~= nil then return ret end
-                    for i = 1, ticks do
-                        coroutine.yield()
-                        if i < ticks then bot.tapButton(name) end
-                    end
-                end
-
                 function bot.tap(name)
                     local ret = bot.tapButton(name)
                     if ret ~= nil then return ret end
                     coroutine.yield()
                 end
 
-                local DIRKEY = nil
-                local function dirKey(dir)
-                    if not DIRKEY then
-                        DIRKEY = {
-                            [0] = 'LeftThumbstickDown',
-                            [1] = 'LeftThumbstickLeft',
-                            [2] = 'LeftThumbstickUp',
-                            [3] = 'LeftThumbstickRight',
-                        }
+                local function holdButton(btnName, ticks)
+                    local ret = bot.tapButton(btnName)
+                    if ret ~= nil then return ret end
+                    for i = 1, ticks do
+                        coroutine.yield()
+                        if i < ticks then bot.tapButton(btnName) end
                     end
-                    return DIRKEY[dir]
                 end
-                function bot.move(dir, ticks)
-                    local b = dirKey(dir)
-                    if not b then return 'error: dir must be 0-3' end
-                    return bot.pressButton(b, ticks)
-                end
-                function bot.moveLeft(ticks)  return bot.move(1, ticks) end
-                function bot.moveRight(ticks) return bot.move(3, ticks) end
-                function bot.moveUp(ticks)    return bot.move(2, ticks) end
-                function bot.moveDown(ticks)  return bot.move(0, ticks) end
+                function bot.moveUp(ticks)    return holdButton('LeftThumbstickUp', ticks) end
+                function bot.moveRight(ticks) return holdButton('LeftThumbstickRight', ticks) end
+                function bot.moveDown(ticks)  return holdButton('LeftThumbstickDown', ticks) end
+                function bot.moveLeft(ticks)  return holdButton('LeftThumbstickLeft', ticks) end
 
                 function bot.wait(ticks)
                     ticks = ticks or 1

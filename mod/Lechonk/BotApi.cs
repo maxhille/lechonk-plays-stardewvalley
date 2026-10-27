@@ -47,61 +47,6 @@ public class BotApi
         Game1.player.Halt();
     }
 
-    /// <summary>Wake the farmer up from bed. Farmer.Update re-sets isInBed while the
-    /// player stands on a tile with the "Bed" map property, so this teleports the
-    /// farmer to the bed's exit spot first (the vanilla wake-up position), then
-    /// clears the in-bed flag. A no-op if not in bed.</summary>
-    public object? WakeUp()
-    {
-        var farmer = Game1.player;
-        if (!farmer.isInBed.Value)
-            return null;
-
-        // Farmer.Update re-flags isInBed=true every tick while the player
-        // stands on a tile with the "Bed" map property (verified in IL), so
-        // the exit must be fully outside the bed footprint. Scan tiles around
-        // the bed for the first passable non-bed tile: below the bed first
-        // (the vanilla get-up side), then above, then left, then right.
-        var location = Game1.currentLocation!;
-        var bed = location.furniture.FirstOrDefault(f => f is BedFurniture) as BedFurniture;
-        if (bed == null)
-        {
-            // No bed furniture found: just clear the flag.
-            farmer.isInBed.Value = false;
-            farmer.forceCanMove();
-            return null;
-        }
-
-        var bedTile = bed.TileLocation;
-        var candidates = new[]
-        {
-            new Vector2(bedTile.X, bedTile.Y + 2),  // below the foot end
-            new Vector2(bedTile.X, bedTile.Y - 1),  // above the head end
-            new Vector2(bedTile.X - 1, bedTile.Y),  // left side
-            new Vector2(bedTile.X + 2, bedTile.Y),  // right side
-        };
-        Vector2? exit = null;
-        foreach (var t in candidates)
-        {
-            if (location.isTilePassable(t)
-                && location.doesTileHaveProperty((int)t.X, (int)t.Y, "Bed", "Back", false) is null)
-            {
-                exit = t * 64f;
-                break;
-            }
-        }
-        if (exit == null)
-        {
-            // Fall back to below-the-bed regardless of the Bed property check.
-            exit = new Vector2(bedTile.X, bedTile.Y + 2) * 64f;
-        }
-
-        farmer.Position = exit.Value;
-        farmer.isInBed.Value = false;
-        farmer.forceCanMove();
-        return new Dictionary<string, object> { ["x"] = farmer.Tile.X, ["y"] = farmer.Tile.Y };
-    }
-
     /// <summary>Debug: list furniture in the current location as {name, tile, isBed}.</summary>
     public object? ListFurniture()
     {
@@ -487,12 +432,9 @@ public class BotApi
                 new { name = "bot.loadGame(slotName)", description = "From the title screen, load the given save folder. Returns 'loading <name>' or 'error: ...'." },
                 new { name = "bot.exitToTitle()", description = "Quit the current save back to the title screen." },
                 new { name = "bot.waitForWorldReady()", description = "Block until the world is loaded and ready (yields once per tick), then return true. Use after bot.loadGame()." },
-                new { name = "bot.pressButton(buttonName, ticks)", description = "Hold a gamepad-style button (DPadUp/DPadDown/DPadLeft/DPadRight, A, X, MouseLeft, ...) for `ticks` input ticks. Blocking; yields once per tick." },
                 new { name = "bot.tap(buttonName)", description = "Tap a button and wait one tick for the game to process it." },
                 new { name = "bot.moveLeft(ticks) / bot.moveRight(ticks) / bot.moveUp(ticks) / bot.moveDown(ticks)", description = "Walk in a direction for `ticks` game ticks. The agent never needs to know key names; the mod resolves the game's movement keybinds." },
-                new { name = "bot.move(dir, ticks)", description = "Same, with dir 0=down, 1=left, 2=up, 3=right." },
                 new { name = "bot.stop()", description = "Stop any held movement immediately." },
-                new { name = "bot.wakeUp()", description = "Get out of bed (teleports to the bed exit spot). Needed after loading a save made in bed." },
                 new { name = "bot.wait(ticks)", description = "Wait for the given number of ticks." },
                 new { name = "bot.getMapSchema()", description = "Map schema for the current location: { location, width, height, player {x, y}, walkable (grid rows of '.'/'#'), warps [{x, y, target, targetX, targetY}] }." },
                 new { name = "bot.isWalkable(x, y)", description = "Check if tile (x, y) is walkable." },
