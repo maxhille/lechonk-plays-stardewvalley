@@ -145,8 +145,10 @@ Lua scripts see a `bot` table:
   navigation. Tested end to end, driven by the pi agent over HTTP (the Go
   harness below is not yet built): load a save, wake, walk the farmer, open the
   TV channel menu.
-- [ ] **Phase 2 — The brain.** Go/TUI harness: Mistral tool loop, `run_script` +
-  `launch_game` + `quit_game`, prompt cache key, compaction, UTC header.
+- [ ] **Phase 2 — The brain.** Go/TUI harness: an OpenAI-compatible model loop
+  (`run_script`, `launch_game`, `read_script_api`), live thought transcript,
+  prompt cache key, compaction, UTC header. The game runs as a child of the
+  harness (kill the harness = kill the game). Full plan: **`PLAN-PHASE2.md`**.
   Target: the model walks the farmer by itself, unaided.
 - [ ] **Phase 3 — The farmer.** Bot API surface grows (tools, inventory, dialogue,
   beds, shops); recipes in `GET /api`; tune the model until a full in-game day plays
@@ -160,9 +162,10 @@ Lua scripts see a `bot` table:
 ## Layout (planned)
 
 ```
+PLAN-PHASE2.md  build-out plan for the harness (the brain)
 flake.nix  devShell (Go + .NET SDK); harness package lands in phase 2
-harness/   Go + Bubble Tea TUI, Mistral loop, context mgmt
+harness/   Go + Bubble Tea TUI, model loop, owns the game as a child process
 mod/Lechonk  C# SMAPI mod: HTTP server, Lua sandbox, Bot API
 .pi/skills/screenshot-game  pi skill: capture the game window to /tmp for reading
-.pi/skills/manage-game  pi skill: launch/stop/status the game as a user systemd unit
+.pi/skills/manage-game  pi skill: launch/stop/status the game (phase 1; the harness owns the game from phase 2)
 ```
