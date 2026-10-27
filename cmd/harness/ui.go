@@ -6,8 +6,8 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	charmansi "github.com/charmbracelet/x/ansi"
 	lipgloss "github.com/charmbracelet/lipgloss"
+	charmansi "github.com/charmbracelet/x/ansi"
 )
 
 // Color palette: a warm, earthy "Stardew Valley" scheme over a dark terminal.
@@ -15,28 +15,30 @@ import (
 // red for stopped. Note: there is no canonical SV TUI palette — these hexes are
 // a reasoned guess; tweak the constants below to taste.
 const (
-	palBorder    = "#d4a843" // warm gold — the game's wood trim / money gold
-	palTitle     = "#f7e5c6" // parchment cream (heading)
-	palRunning   = "#8ec85f" // grass green (RUNNING)
-	palStopped   = "#d95d5d" // terracotta red (STOPPED)
-	palExited    = "#e0b13a" // amber — process died on its own (not a clean stop)
+	palBorder     = "#d4a843" // warm gold — the game's wood trim / money gold
+	palTitle      = "#f7e5c6" // parchment cream (heading)
+	palRunning    = "#8ec85f" // grass green (RUNNING)
+	palStopped    = "#d95d5d" // terracotta red (STOPPED)
+	palExited     = "#e0b13a" // amber — process died on its own (not a clean stop)
 	palTranscript = "#ede0c4" // warm off-white (main transcript text)
-	palFooter    = "#b8a88a" // muted tan (keys / secondary)
-	palDivider   = "#6e6a5e" // subtle warm-gray (divider line)
+	palThinking   = "#ffe066" // bright gold — Le Chonk's own words / thoughts
+	palFooter     = "#b8a88a" // muted tan (keys / secondary)
+	palDivider    = "#6e6a5e" // subtle warm-gray (divider line)
 )
 
 // Styles for the full-screen frame.
 var (
-	titleStyle  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(palTitle))
+	titleStyle      = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(palTitle))
 	transcriptStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(palTranscript))
-	dividerStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(palDivider))
-	statusRun   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(palRunning))
-	statusStop  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(palStopped))
-	statusExited = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(palExited))
-	footerStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(palFooter))
-	frameStyle  = lipgloss.NewStyle().
-		Border(lipgloss.NormalBorder(), true, true, true, true). // top, right, bottom, left
-		BorderForeground(lipgloss.Color(palBorder))
+	thinkingStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(palThinking))
+	dividerStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color(palDivider))
+	statusRun       = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(palRunning))
+	statusStop      = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(palStopped))
+	statusExited    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(palExited))
+	footerStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color(palFooter))
+	frameStyle      = lipgloss.NewStyle().
+			Border(lipgloss.NormalBorder(), true, true, true, true). // top, right, bottom, left
+			BorderForeground(lipgloss.Color(palBorder))
 )
 
 type tickMsg struct{}
@@ -63,7 +65,7 @@ func newUIModel(gm *GameManager, gc *gameController, debugPort int, ms *modelSta
 	}
 }
 
-func (m uiModel) addLine(s string) {
+func (m *uiModel) addLine(s string) {
 	m.lines = append(m.lines, s)
 	if len(m.lines) > 500 {
 		m.lines = m.lines[len(m.lines)-500:]
@@ -186,7 +188,11 @@ func (m uiModel) frame() string {
 		content[3+i] = ""
 	}
 	for i, line := range trans {
-		content[3+topPad+i] = padRight(transcriptStyle.Render(line), insideW)
+		st := transcriptStyle
+		if strings.Contains(line, "Le Chonk (model):") {
+			st = thinkingStyle
+		}
+		content[3+topPad+i] = padRight(st.Render(line), insideW)
 	}
 
 	return frameStyle.Render(strings.Join(content, "\n"))
@@ -256,7 +262,7 @@ func (m uiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	mm := uiModel(m)
 
 	// Drain any model-loop events (non-blocking so we never stall the TUI).
-	drain:
+drain:
 	for {
 		select {
 		case ev, ok := <-mm.events:

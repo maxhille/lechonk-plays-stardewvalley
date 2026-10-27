@@ -22,7 +22,7 @@ type gameController struct {
 type gameCmdKind int
 
 const (
-	opStart  gameCmdKind = iota
+	opStart gameCmdKind = iota
 	opStop
 	opRestart
 	opLaunch // blocking: result sent back on cmd.replyCh
@@ -34,9 +34,9 @@ type gameCmd struct {
 }
 
 type gameLaunchResult struct {
-	ok   bool
-	pid  int
-	err  string
+	ok    bool
+	pid   int
+	err   string
 	state string
 }
 
@@ -146,9 +146,24 @@ func (g *gameController) launch(replyCh chan gameLaunchResult) {
 }
 
 // Fire-and-forget command publishers (buffered cmdCh).
-func (g *gameController) StartCmd()   { select { case g.cmdCh <- gameCmd{op: opStart}: default: } }
-func (g *gameController) StopCmd()    { select { case g.cmdCh <- gameCmd{op: opStop}: default: } }
-func (g *gameController) RestartCmd() { select { case g.cmdCh <- gameCmd{op: opRestart}: default: } }
+func (g *gameController) StartCmd() {
+	select {
+	case g.cmdCh <- gameCmd{op: opStart}:
+	default:
+	}
+}
+func (g *gameController) StopCmd() {
+	select {
+	case g.cmdCh <- gameCmd{op: opStop}:
+	default:
+	}
+}
+func (g *gameController) RestartCmd() {
+	select {
+	case g.cmdCh <- gameCmd{op: opRestart}:
+	default:
+	}
+}
 
 // Launch asks the controller to ensure the game is up and reports the result.
 // The caller blocks on replyCh (it must not be closed by anything else).

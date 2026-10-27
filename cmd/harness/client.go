@@ -17,7 +17,7 @@ import (
 // Config (env):
 //
 //	LECHONK_BASE_URL  e.g. http://saturn:9933/v1   (default)
-//	LECHONK_MODEL     e.g. Ternary-Bonsai-2-27B    (default)
+//	LECHONK_MODEL     e.g. Qwen3.8-27B            (default)
 //	LECHONK_API_KEY   optional; the local ninfer server needs none.
 type ModelClient struct {
 	baseURL string
@@ -29,7 +29,7 @@ type ModelClient struct {
 func NewModelClient() *ModelClient {
 	return &ModelClient{
 		baseURL: envOr("LECHONK_BASE_URL", "http://saturn:9933/v1"),
-		model:   envOr("LECHONK_MODEL", "Ternary-Bonsai-2-27B"),
+		model:   envOr("LECHONK_MODEL", "Qwen3.8-27B"),
 		apiKey:  os.Getenv("LECHONK_API_KEY"),
 		http:    &http.Client{Timeout: 5 * time.Minute},
 	}
@@ -47,18 +47,19 @@ func envOr(k, def string) string {
 // For the "tool" role, Content carries the result; ToolCallID matches the call.
 // For the assistant role, ToolCalls (if any) is the list of tools it asked for.
 type ChatMessage struct {
-	Role       string         `json:"role"`
-	Content    string         `json:"content,omitempty"`
-	ToolCalls  []ToolCall     `json:"tool_calls,omitempty"`
-	ToolCallID string         `json:"tool_call_id,omitempty"`
+	Role       string     `json:"role"`
+	Content    string     `json:"content,omitempty"`
+	Reasoning  string     `json:"reasoning_content,omitempty"`
+	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
+	ToolCallID string     `json:"tool_call_id,omitempty"`
 }
 
 // ToolCall is a tool the assistant asked to run (in a reply) or echoed back
 // (when the caller sends the next turn). Arguments is a JSON string.
 type ToolCall struct {
-	ID       string         `json:"id"`
-	Type     string         `json:"type"`
-	Function ToolCallFunc   `json:"function"`
+	ID       string       `json:"id"`
+	Type     string       `json:"type"`
+	Function ToolCallFunc `json:"function"`
 }
 
 type ToolCallFunc struct {
@@ -73,9 +74,9 @@ type Tool struct {
 }
 
 type ToolFunctionDef struct {
-	Name         string          `json:"name"`
-	Description  string          `json:"description"`
-	Parameters   json.RawMessage `json:"parameters"` // JSON Schema for the args
+	Name        string          `json:"name"`
+	Description string          `json:"description"`
+	Parameters  json.RawMessage `json:"parameters"` // JSON Schema for the args
 }
 
 // ChatResponse is a non-streaming OpenAI-compat chat response.
@@ -149,8 +150,7 @@ func (c *ModelClient) SelfTest() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 	messages := []ChatMessage{
-		{Role: "system", Content:
-			"You are Le Chonk, an AI playing Stardew Valley, alone on the farm. " +
+		{Role: "system", Content: "You are Le Chonk, an AI playing Stardew Valley, alone on the farm. " +
 			"On each turn you either reply with a short thought, or call a tool. " +
 			"If no tool fits the situation, reply in plain text."},
 		{Role: "user", Content: "Morning on the farm. What do you want to do first?"},

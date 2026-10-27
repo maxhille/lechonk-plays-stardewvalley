@@ -18,14 +18,14 @@ import (
 type thoughtEventKind int
 
 const (
-	evStart thoughtEventKind = iota // Le Chonk starting
-	evStop                          // Le Chonk stopped / cancelled
-	evInfo                          // harness notice (launching, waiting…)
-	evThought                       // Le Chonk's plain-text thought
-	evTool                          // Le Chonk called a tool
-	evResult                        // a tool's result
-	evError                         // something went wrong
-	evDone                          // Le Chonk said DONE
+	evStart   thoughtEventKind = iota // Le Chonk starting
+	evStop                            // Le Chonk stopped / cancelled
+	evInfo                            // harness notice (launching, waiting…)
+	evThought                         // Le Chonk's plain-text thought
+	evTool                            // Le Chonk called a tool
+	evResult                          // a tool's result
+	evError                           // something went wrong
+	evDone                            // Le Chonk said DONE
 )
 
 // thoughtEvent is one line the TUI transcript and log record for the model loop.
@@ -178,12 +178,26 @@ func (m *modelState) loop() {
 		msg := resp.Choices[0].Message
 		messages = append(messages, msg)
 
-		if strings.TrimSpace(msg.Content) != "" {
-			m.emitText(evThought, turn, msg.Content)
-			if isDone(msg.Content) {
-				m.emitText(evDone, turn, "Le Chonk says DONE — ending the day.")
-				return
-			}
+		// Show him as a thought. This model does its real thinking in a hidden
+		// lane (reasoning_content); the visible content is often empty when it
+		// acts. So emit the reasoning too — fall back to it when the visible
+		// text is blank.
+		visible := strings.TrimSpace(msg.Content)
+		reasoning := strings.TrimSpace(msg.Reasoning)
+		switch {
+		case visible == "" && reasoning == "":
+			// pure tool call, no words; nothing to show as a thought.
+		case visible != "" && reasoning != "":
+			m.emitText(evThought, turn, visible)
+			m.emitText(evThought, turn, "  (thinking) "+truncateDisplay(reasoning, 500))
+		case visible != "":
+			m.emitText(evThought, turn, visible)
+		default: // reasoning only
+			m.emitText(evThought, turn, truncateDisplay(reasoning, 500))
+		}
+		if isDone(msg.Content) {
+			m.emitText(evDone, turn, "Le Chonk says DONE — ending the day.")
+			return
 		}
 
 		// No tool called: nudge to act so it can't loop on thoughts alone.
@@ -214,10 +228,12 @@ func (m *modelState) loop() {
 func (m *modelState) seedMessages() []ChatMessage {
 	return []ChatMessage{
 		{Role: "system", Content: systemPrompt},
-		{Role: "user", Content:
-			"Start the game now. First call launch_game to get the world up, then " +
-			"call read_script_api to see your tools, then begin playing your day " +
-			"one action at a time. Say DONE when the day is finished."},
+		{Role: "user", Content: "Start the game now. First call launch_game to get the game up. It " +
+			"will sit at the title screen — find your save slot with run_script: " +
+			"return bot.listSaves(), load the one that belongs to you (it is named after " +
+			"you), then wait for the world to be ready (bot.waitForWorldReady()), call " +
+			"read_script_api to see your tools, and begin playing your day one action at " +
+			"a time. Say DONE when the day is finished."},
 	}
 }
 
@@ -231,9 +247,11 @@ func (m *modelState) tools() []Tool {
 		}},
 		{Type: "function", Function: ToolFunctionDef{
 			Name: "launch_game",
-			Description: "Start the game (a child process) and load it to the world. Call this at the start " +
-				"of a run, or whenever the game seems down. The save slot is optional.",
-			Parameters: json.RawMessage(`{"type":"object","properties":{"slot":{"type":"string","description":"save slot name to load (optional)"}},"required":[]}`),
+			Description: "Start the game (a child process) and wait for the mod API. If no save is " +
+				"loaded the game sits at the title screen — load the save afterwards with " +
+				"run_script: return bot.loadGame(slot). Call this at the start of a run, or " +
+				"whenever the game seems down. No arguments.",
+			Parameters: json.RawMessage(`{"type":"object","properties":{},"required":[]}`),
 		}},
 		{Type: "function", Function: ToolFunctionDef{
 			Name: "run_script",
@@ -317,21 +335,14 @@ func (m *modelState) launchGame(args string, turn int) string {
 	if !m.waitForAPI() {
 		return "ERROR: game started but the mod API did not come up"
 	}
-	res, err := m.modScript("return bot.waitForWorldReady()")
-	if err != nil {
-		return "ERROR: " + err.Error()
-	}
 	s := m.gm.Status()
 	pid := s.PID
 	if pid == 0 {
 		pid = -1
 	}
-	var sr scriptResult
-	if json.Unmarshal([]byte(res), &sr) == nil {
-		return fmt.Sprintf("game up (pid %d). world-ready: %v (evt=%s, ticks=%d)",
-			pid, sr.Result, sr.Evt, sr.Ticks)
-	}
-	return fmt.Sprintf("game up (pid %d). world-ready: %s", pid, res)
+	return fmt.Sprintf("game up (pid %d), mod API ready. The game is at the title " +
+		"screen — load your save with run_script: return bot.loadGame('<slot>'), " +
+		"then wait for the world: return bot.waitForWorldReady().", pid)
 }
 
 func (m *modelState) waitForAPI() bool {
@@ -382,13 +393,6 @@ func (m *modelState) doHTTP(req *http.Request) (string, error) {
 	return string(body), nil
 }
 
-type scriptResult struct {
-	Result interface{} `json:"result"`
-	Error  string      `json:"error"`
-	Ticks  int         `json:"ticksUsed"`
-	Evt    string      `json:"evt"`
-}
-
 func isDone(content string) bool {
 	return strings.Contains(strings.ToUpper(strings.TrimSpace(content)), "DONE")
 }
@@ -414,7 +418,6 @@ func truncateModel(s string, n int) string {
 	return s[:n] + "\n[truncated]"
 }
 
-
 // OneTurn runs a single model call with the real three tools (no game side
 // effects) and prints Le Chonk's first decision. Used with LECHONK_LOOPTEST=1.
 func (m *modelState) OneTurn() {
@@ -425,8 +428,13 @@ func (m *modelState) OneTurn() {
 		return
 	}
 	msg := resp.Choices[0].Message
-	if strings.TrimSpace(msg.Content) != "" {
-		fmt.Println("Le Chonk:", msg.Content)
+	if reasoning := strings.TrimSpace(msg.Reasoning); reasoning != "" {
+		fmt.Println("Le Chonk thinking:")
+		fmt.Println("  " + reasoning)
+	}
+	if content := strings.TrimSpace(msg.Content); content != "" {
+		fmt.Println("Le Chonk says:")
+		fmt.Println("  " + content)
 	}
 	if len(msg.ToolCalls) == 0 {
 		fmt.Println("(no tool call)")
@@ -491,5 +499,14 @@ Rules
   plan (move, reload, close a menu) rather than retrying the same script.
 - Keep thinking concise. Act.
 
-Begin: launch the game, read the API, and plan your first day.
+Your name is Le Chonk. launch_game brings the game up but it sits at the title
+screen — the world is NOT ready yet. Once the game is up, find your save slot:
+  return bot.listSaves()
+Your save is the one named after you (Le Chonk). Load it:
+  return bot.loadGame('<your save slot>')
+then wait for the world to be ready:
+  return bot.waitForWorldReady()
+Only start playing once the world is ready.
+
+Begin: launch the game, load your save, read the API, and plan your first day.
 `
