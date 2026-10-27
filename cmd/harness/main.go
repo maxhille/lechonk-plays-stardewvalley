@@ -12,6 +12,17 @@ import (
 )
 
 func main() {
+	// LECHONK_MODELTEST=1: run the model client self-test once, print the
+	// reply, and exit. Used to verify the endpoint/model without the TUI.
+	if os.Getenv("LECHONK_MODELTEST") == "1" {
+		c := NewModelClient()
+		fmt.Printf("[modeltest] base=%s model=%s\n", c.baseURL, c.model)
+		if err := c.SelfTest(); err != nil {
+			fmt.Fprintf(os.Stderr, "[modeltest] error: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
 	gd := defaultGameDir()
 	debugPort := 17643
 	if v, ok := os.LookupEnv("LECHONK_DEBUG_PORT"); ok {
