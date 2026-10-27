@@ -9,8 +9,9 @@
       forSystems = f: nixpkgs.lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
     in
     {
-      # The harness lands here in phase 2, once harness/ has real code:
-      #   default = pkgs.buildGoApplication { pname = "lechonk"; src = ./harness; };
+      # Phase 2: the Go harness (harness/). Built via the devshell:
+      #   nix develop --command go build ./harness/lechonk 2>/dev/null || nix develop --command go build -o /tmp/lechonk ./harness/
+      #   (a flake package is added once a stable build recipe is settled).
 
       devShells = forSystems (pkgs: {
         default = pkgs.mkShell {

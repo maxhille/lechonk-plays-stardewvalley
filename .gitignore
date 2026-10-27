@@ -1,3 +1,14 @@
 # Build output
 mod/**/bin/
 mod/**/obj/
+
+# Go build artifacts (module root; main binary at ./lechonk)
+lechonk
+cmd/harness/lechonk
+
+# direnv env (local, per-machine — the .envrc is never committed)
+.envrc
+.envrc.local
+.envrc.d/*
+# nix-direnv cache (created by `use flake` in .envrc)
+.direnv/
