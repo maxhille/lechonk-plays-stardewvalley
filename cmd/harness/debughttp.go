@@ -13,13 +13,14 @@ import (
 // for manual relaunch / stop / status (debugging). It is bound to 127.0.0.1 only.
 type DebugServer struct {
 	gm   *GameManager
+	gc   *gameController
 	ln   net.Listener
 	http *http.Server
 	mu   sync.Mutex
 }
 
-func NewDebugServer(gm *GameManager) *DebugServer {
-	return &DebugServer{gm: gm}
+func NewDebugServer(gm *GameManager, gc *gameController) *DebugServer {
+	return &DebugServer{gm: gm, gc: gc}
 }
 
 func (ds *DebugServer) Start() error {
@@ -47,22 +48,25 @@ func (ds *DebugServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(ds.gm.Status())
 	case r.Method == http.MethodPost && r.URL.Path == "/launch":
-		if err := ds.gm.Start(); err != nil {
-			ds.writeJSON(w, 502, map[string]string{"error": err.Error()})
-		} else {
-			ds.writeJSON(w, 200, map[string]string{"msg": "launched"})
+		replyCh := make(chan gameLaunchResult, 1)
+		ds.gc.Launch(replyCh)
+		var lr gameLaunchResult
+		select {
+		case lr = <-replyCh:
+			if lr.ok {
+				ds.writeJSON(w, 200, map[string]string{"msg": "launched", "pid": fmt.Sprintf("%d", lr.pid), "state": lr.state})
+			} else {
+				ds.writeJSON(w, 502, map[string]string{"error": lr.err})
+			}
+		case <-time.After(30 * time.Second):
+			ds.writeJSON(w, 504, map[string]string{"error": "launch timed out"})
 		}
 	case r.Method == http.MethodPost && r.URL.Path == "/stop":
-		ds.gm.Stop()
-		ds.writeJSON(w, 200, map[string]string{"msg": "stopped"})
+		ds.gc.StopCmd()
+		ds.writeJSON(w, 200, map[string]string{"msg": "stop command sent to game controller"})
 	case r.Method == http.MethodPost && r.URL.Path == "/restart":
-		ds.gm.Stop()
-		time.Sleep(1 * time.Second)
-		if err := ds.gm.Start(); err != nil {
-			ds.writeJSON(w, 502, map[string]string{"error": err.Error()})
-		} else {
-			ds.writeJSON(w, 200, map[string]string{"msg": "relaunched"})
-		}
+		ds.gc.RestartCmd()
+		ds.writeJSON(w, 200, map[string]string{"msg": "restart command sent to game controller"})
 	default:
 		w.WriteHeader(http.StatusNotFound)
 		fmt.Fprintf(w, "endpoints: GET /status  POST /launch /stop /restart\n")

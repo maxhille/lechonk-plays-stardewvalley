@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/signal"
@@ -23,6 +24,15 @@ func main() {
 		}
 		return
 	}
+	// LECHONK_LOOPTEST=1: one model turn against the real tools — no TUI, no
+	// game side effects. Shows what Le Chonk would do on its first decision.
+	if os.Getenv("LECHONK_LOOPTEST") == "1" {
+		client := NewModelClient()
+		ms := newModelState(client, NewGameManager("", 17643), nil, make(chan thoughtEvent, 1))
+		fmt.Printf("[looptest] model=%s base=%s\n", client.model, client.baseURL)
+		ms.OneTurn()
+		return
+	}
 	gd := defaultGameDir()
 	debugPort := 17643
 	if v, ok := os.LookupEnv("LECHONK_DEBUG_PORT"); ok {
@@ -32,33 +42,56 @@ func main() {
 	}
 
 	gm := NewGameManager(gd, debugPort)
+	events := make(chan thoughtEvent, 256)
+
+	// The game controller: the goroutine that OWNS the process lifecycle and
+	// publishes every state change to the TUI/log the moment it happens (not
+	// on the next tick). Every caller (TUI, model, debug, signal) publishes a
+	// command to it instead of poking gm.Start()/gm.Stop() directly.
+	gc := NewGameController(gm, events)
+	gctx, gcancel := context.WithCancel(context.Background())
+	go gc.Run(gctx)
 
 	// Local-only debug HTTP endpoint (relaunch / stop / status).
-	ds := NewDebugServer(gm)
+	ds := NewDebugServer(gm, gc)
 	if err := ds.Start(); err != nil {
 		fmt.Fprintf(os.Stderr, "[lechonk] debug http: %v\n", err)
 	}
 
-	// SIGTERM (e.g. systemctl --user stop / kill) -> graceful stop of the game.
+	// The Le Chonk thinking loop and its TUI feed.
+	client := NewModelClient()
+	ms := newModelState(client, gm, gc, events)
+
+	// SIGTERM (e.g. systemctl --user stop / kill) -> graceful stop.
 	// Ctrl+C is handled by the TUI itself.
 	ch := make(chan os.Signal, 1)
 	signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		<-ch
+		// Graceful stop: drop new cmds to the controller, stop the model, then
+		// reap the game process tree DIRECTLY (gm.Stop is idempotent — this is
+		// the guarantee that harness death always kills the game, even mid-op).
+		gcancel()
+		ms.Stop()
 		gm.Stop()
 		ds.Stop()
 		time.Sleep(300 * time.Millisecond)
 		os.Exit(0)
 	}()
 
-	model := newUIModel(gm, debugPort)
+	model := newUIModel(gm, gc, debugPort, ms, events)
 	model.addLine(fmt.Sprintf("game dir: %s", gd))
 	model.addLine(fmt.Sprintf("debug api: http://127.0.0.1:%d  (GET /status, POST /launch /stop /restart)", debugPort))
+	model.addLine(fmt.Sprintf("model: %s   %s", client.model, client.baseURL))
+	model.addLine("transcript: /tmp/lechonk-transcript.log  (tail it while he runs)")
 
 	p := tea.NewProgram(model, tea.WithAltScreen())
-	if _, err := p.Run(); err != nil {
-		// Ctrl+C (interrupt) or fatal: make sure the game is down too.
-		gm.Stop()
-		ds.Stop()
-	}
+	_, _ = p.Run()
+	// Shutdown (always, regardless of how Run() returned): stop the controller,
+	// the model, reap the game process tree directly (idempotent — the guarantee
+	// that harness death kills the game), and the debug server.
+	gcancel()
+	ms.Stop()
+	gm.Stop()
+	ds.Stop()
 }

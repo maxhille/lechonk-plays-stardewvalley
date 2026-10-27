@@ -43,10 +43,14 @@ func envOr(k, def string) string {
 }
 
 // ChatMessage is one entry in the OpenAI-compat messages array.
+// Role is "system", "user", "assistant", or "tool".
+// For the "tool" role, Content carries the result; ToolCallID matches the call.
+// For the assistant role, ToolCalls (if any) is the list of tools it asked for.
 type ChatMessage struct {
-	Role      string     `json:"role"`
-	Content   string     `json:"content,omitempty"`
-	ToolCalls []ToolCall `json:"tool_calls,omitempty"`
+	Role       string         `json:"role"`
+	Content    string         `json:"content,omitempty"`
+	ToolCalls  []ToolCall     `json:"tool_calls,omitempty"`
+	ToolCallID string         `json:"tool_call_id,omitempty"`
 }
 
 // ToolCall is a tool the assistant asked to run (in a reply) or echoed back

@@ -32,6 +32,16 @@ type GameStatus struct {
 	Uptime  time.Duration
 	PortUp  bool
 	Error   string
+	// Exited is true when a previously-running game process died on its own
+	// (user closed the window, it crashed) rather than being stopped by us.
+	Exited bool
+}
+
+// deathEvent is what the process monitor publishes when the game process exits.
+type deathEvent struct {
+	spontaneous bool // true = died on its own (not stopped by the harness)
+	pid         int
+	err         error
 }
 
 // GameManager launches and stops the game as a child process. The game lives in
@@ -44,13 +54,20 @@ type GameManager struct {
 	pid       int
 	started   time.Time
 	error     string
+	exited    bool // true when the process died on its own (not via Stop())
 	gameDir   string
 	debugPort int
 	logPath   string
+	deathCh   chan deathEvent // process-death events published by the monitor
 }
 
 func NewGameManager(gameDir string, debugPort int) *GameManager {
-	return &GameManager{gameDir: gameDir, debugPort: debugPort, state: gameStateIdle}
+	return &GameManager{
+		gameDir:   gameDir,
+		debugPort: debugPort,
+		state:     gameStateIdle,
+		deathCh:   make(chan deathEvent, 1),
+	}
 }
 
 // defaultGameDir returns the default Stardew Valley folder.
@@ -84,6 +101,7 @@ func (gm *GameManager) Start() error {
 		return fmt.Errorf("game already %s", stateName(gm.state))
 	}
 	gm.error = ""
+	gm.exited = false
 	gm.state = gameStateStarting
 	gm.logPath = filepath.Join("/tmp", "lechonk-game.log")
 
@@ -99,7 +117,31 @@ func (gm *GameManager) Start() error {
 	gm.pid = cmd.Process.Pid
 	gm.state = gameStateRunning
 	gm.started = time.Now()
+	go gm.monitor(cmd) // wait for the process to exit; reaps state + publishes death
 	return nil
+}
+
+// monitor blocks until the launched process exits (cmd.Wait is the authoritative
+// death signal). When it returns it reaps our state and publishes to deathCh.
+// A spontaneous death (we didn't stop it) is detected because Stop() would have
+// already moved the state off running under the lock.
+func (gm *GameManager) monitor(cmd *exec.Cmd) {
+	err := cmd.Wait()
+	gm.mu.Lock()
+	defer gm.mu.Unlock()
+	pid := gm.pid
+	spontaneous := gm.state == gameStateRunning
+	if spontaneous {
+		gm.state = gameStateIdle
+		gm.exited = true
+		gm.pid = 0
+		gm.cmd = nil
+		gm.error = ""
+	}
+	select {
+	case gm.deathCh <- deathEvent{spontaneous: spontaneous, pid: pid, err: err}:
+	default:
+	}
 }
 
 func (gm *GameManager) buildCommand() (*exec.Cmd, error) {
@@ -168,6 +210,17 @@ func (gm *GameManager) gameEnv() []string {
 	return env
 }
 
+// APIUp reports whether the mod's HTTP server is listening, independently of
+// whether the harness started the game (so an externally-launched game with the
+// mod also reads as UP).
+func (gm *GameManager) APIUp() bool {
+	gm.mu.Lock()
+	defer gm.mu.Unlock()
+	return gm.apiUp()
+}
+
+// Status returns a pure read of the current state. State is set by the process
+// monitor (cmd.Wait) on death and by Stop()/Start(), so it is not polled here.
 func (gm *GameManager) Status() GameStatus {
 	gm.mu.Lock()
 	defer gm.mu.Unlock()
@@ -178,6 +231,7 @@ func (gm *GameManager) Status() GameStatus {
 		s.Uptime = time.Since(gm.started)
 		s.PortUp = gm.apiUp()
 	}
+	s.Exited = gm.exited
 	s.Error = gm.error
 	return s
 }
@@ -199,9 +253,9 @@ func (gm *GameManager) Stop() {
 	gm.mu.Lock()
 	defer gm.mu.Unlock()
 	if gm.state != gameStateRunning {
-		gm.error = ""
 		return
 	}
+	gm.exited = false
 	gm.state = gameStateStopping
 
 	pids := subtreeOf(gm.pid)
