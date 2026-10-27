@@ -9,8 +9,9 @@
       forSystems = f: nixpkgs.lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
     in
     {
-      # Phase 2: the Go harness (harness/). Built via the devshell:
-      #   nix develop --command go build ./harness/lechonk 2>/dev/null || nix develop --command go build -o /tmp/lechonk ./harness/
+      # Phase 2: the Go harness (cmd/harness/). Module root is the repo root
+      # (go.mod); the single main package lives at cmd/harness/. Built via the
+      #   devshell:  go build -o ./lechonk ./cmd/harness
       #   (a flake package is added once a stable build recipe is settled).
 
       devShells = forSystems (pkgs: {

@@ -42,6 +42,46 @@ description, posted to `#challenges-submissions`.
   up across tool calls. Start/stop/status via the `manage-game` skill:
   `bash .pi/skills/manage-game/scripts/manage.sh {start|stop|status}`.
 
+## Running it
+
+Two buildable things:
+
+1. **The mod (C# SMAPI).** Rebuild to redeploy — `dotnet build` auto-copies
+   `Lechonk.dll` into `Mods/Lechonk/` in the game folder:
+   ```bash
+   nix develop mod/Lechonk --command dotnet build
+   ```
+2. **The harness (Go).** From the repo root, in the flake devshell (`.envrc`)
+   — the canonical build path:
+   ```bash
+   go build -o ./lechonk ./cmd/harness
+   ```
+
+Run the harness:
+
+- **Directly.** `./lechonk` opens a full-screen TUI. Keys: `l` launch, `s` stop,
+  `r` restart, `q` quit (also reaps the game child). Run it under a real
+  terminal, or `script -qc ./lechonk /tmp/lechonk.log` to log it.
+- **Via user systemd (recommended).** Keeps the harness — and thus the game — up
+  across a crash and makes kill-harness=kill-game airtight:
+   ```bash
+   systemd-run --user --unit=lechonk --working-directory="$PWD" ./lechonk
+   ```
+  `.envrc` (via `use flake` + nix-direnv) already sets `SV_SMAPI_LAUNCH_CMD`
+  and `LECHONK_DEBUG_PORT`. `systemctl --user start|stop|kill lechonk` is the
+  interface. The model vars (`LECHONK_BASE_URL` / `LECHONK_MODEL` /
+  `LECHONK_API_KEY`) are deliberately still unset — the model loop is the next
+  build.
+
+Endpoints, once the game is up:
+
+- **Mod Bot API** — `127.0.0.1:17642`: `POST /script`, `GET /api`.
+- **Harness debug API** — `127.0.0.1:17643`: `GET /status`, `POST /launch`,
+  `/stop`, `/restart`.
+
+Mod reload = rebuild (1) → `systemctl --user restart lechonk` (or `r` in the
+TUI).
+
 ## Architecture
 
 Three processes, two network hops, one tool:
@@ -137,13 +177,12 @@ Lua scripts see a `bot` table:
 
 - [x] **Phase 0 — Grounds.** Game + SMAPI installed and running (SMAPI 4.5.2,
   Stardew Valley 1.6.15, native Linux build, launched via `steam-run`); repo
-  scaffold (`harness/`, `mod/`).
+  scaffold (`cmd/harness/`, `mod/`).
 - [x] **Phase 1 — The body.** SMAPI mod with HTTP server (`POST /script`,
   `GET /api`), MoonSharp Lua sandbox running scripts as coroutines over game
   ticks, tick budget, cancel on connection close. Bot API: movement via
   synthetic input, save load/exit, wake-up, state queries, menu/dialogue
-  navigation. Tested end to end, driven by the pi agent over HTTP (the Go
-  harness below is not yet built): load a save, wake, walk the farmer, open the
+  navigation. Tested end to end, driven over the mod's HTTP API: load a save, wake, walk the farmer, open the
   TV channel menu.
 - [ ] **Phase 2 — The brain.** Go/TUI harness: an OpenAI-compatible model loop
   (`run_script`, `launch_game`, `read_script_api`), live thought transcript,
@@ -163,8 +202,8 @@ Lua scripts see a `bot` table:
 
 ```
 PLAN-PHASE2.md  build-out plan for the harness (the brain)
-flake.nix  devShell (Go + .NET SDK); harness package lands in phase 2
-harness/   Go + Bubble Tea TUI, model loop, owns the game as a child process
+flake.nix  devShell (Go + .NET SDK); Go module at the repo root (cmd/harness)
+cmd/harness/  Go + Bubble Tea TUI (built) — owns the game as a child process; model loop next
 mod/Lechonk  C# SMAPI mod: HTTP server, Lua sandbox, Bot API
 .pi/skills/screenshot-game  pi skill: capture the game window to /tmp for reading
 .pi/skills/manage-game  pi skill: launch/stop/status the game (phase 1; the harness owns the game from phase 2)

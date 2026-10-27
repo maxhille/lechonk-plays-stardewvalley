@@ -40,19 +40,52 @@ user systemd
 the game. Mod reload = rebuild (auto-deploys the DLL) →
 `systemctl --user restart lechonk`.
 
-## The flake — two changes, that's it
+## Status
 
-1. Uncomment the `buildGoApplication` in `flake.nix` once `harness/` has a
-   `go.mod`:
+**Built and verified:**
+- Module at the repo root (`go.mod`/`go.sum` at the top); main package at
+  `cmd/harness/`.
+- Full-screen Bubble Tea TUI: alternate screen, bottom-anchored transcript,
+  live game status, `l`/`s`/`r`/`q` keys, and a warm "Stardew Valley" palette
+  (parchment text, gold border, green = running, terracotta = stopped).
+- Game mgmt: the harness owns the game as a child; SIGTERM graceful → SIGKILL
+  last resort; kill-harness = kill-game verified; ad-hoc run via
+  `systemd-run --user --unit=lechonk`.
+- Debug HTTP on `127.0.0.1:17643`: `GET /status`, `POST /launch /stop /restart`.
+- Mod build/redeploy loop verified (`dotnet build` auto-deploys the DLL).
 
+**Still to build (the brain itself):**
+- Model client: OpenAI-compat streaming + tool-call parsing, env config, UTC
+  header.
+- The three tools wired: `launch_game`, `run_script`, `read_script_api`.
+- Prompt mgmt: stable prompt-cache key, compaction, system prompt, the
+  think→act→observe loop.
+- Fake OpenAI-compat echo endpoint for zero-token harness testing.
+- Streaming-thoughts panel + top status bar (model / endpoint / in-game time /
+  day) and the "running a script…" elapsed clock.
+- Flake `buildGoApplication` package (unverified recipe).
+
+## The flake — module root is the repo
+
+The Go module root moved to the repo: `go.mod`/`go.sum` at the top, main
+package at `cmd/harness/`.
+
+1. **Devshell build (canonical, used today):**
+   ```sh
+   go build -o ./lechonk ./cmd/harness
+   ```
+2. **Flake package (later — unverified recipe).** A `buildGoApplication` whose
+   `src` is the repo root (the `go.mod` lives there; `cmd/harness` is the main
+   package to build):
    ```nix
-   default = forSystems (pkgs: pkgs.buildGoApplication {
+   lechonk = forSystems (pkgs: pkgs.buildGoApplication {
      pname = "lechonk";
-     src    = ./harness;
+     src    = .;   # module root; pick the cmd/harness package
    });
    ```
-
-2. The devshell already has `go` and `dotnet-sdk`. **No change.** The game is
+   ⚠ The exact package-selection flags here are *not yet written/verified* —
+   this is a plan entry, not working Nix.
+3. The devshell already has `go` and `dotnet-sdk`. **No change.** The game is
    still a runtime requirement, not a flake input.
 
 ## Harness design
@@ -83,7 +116,12 @@ streaming, game launch) can be exercised against it.
 | `run_script(lua)` | `POST /script`; blocks for the result; returns `{result, error, ticksUsed, evt}`. HTTP timeout set above the tick budget so a legitimately long script never false-timeouts. |
 | `read_script_api()` | `GET /api`; returns the schema. Cheap, no Lua — this is how LeChonk self-documents its own game. |
 
-### Thinking out loud (TUI)
+### Thinking out loud (TUI) — shell built, content next
+
+The TUI shell is **built and verified**: a full-screen frame (alternate screen),
+a bottom-anchored transcript, a live status line, and `l`/`s`/`r`/`q` keys, in
+a warm "Stardew Valley" palette. What remains is the *content* the model loop
+will feed into it:
 
 LeChonk's thoughts are shown live so the human follows the run:
 
@@ -139,21 +177,23 @@ Or a tiny `~/.config/systemd/user/lechonk.service` with `ExecStart` /
 
 ## Build order
 
-1. **Scaffold** — `harness/go.mod`, `go get bubbletea`. Flake: uncomment
-   `buildGoApplication`.
-2. **Model client** — OpenAI-compat streaming + tool-call parsing, env config.
+1. ✅ **Scaffold** — module at the repo root (`go.mod`), main package at
+   `cmd/harness/`, `go get bubbletea`. Flake `buildGoApplication`: **not yet**
+   (unverified recipe, see "The flake").
+2. ✅ **Game process mgmt** — child `exec`, port-wait, SIGTERM/SIGKILL; kill-
+   harness=kill-game verified.
+3. ⬜ **Model client** — OpenAI-compat streaming + tool-call parsing, env config.
    Unit-test against the fake echo endpoint (no money).
-3. **Game process mgmt** — child `exec`, port-wait, SIGTERM/SIGKILL, cgroup
-   reaper.
-4. **The three tools** — `launch_game`, `run_script`, `read_script_api`
+4. ⬜ **The three tools** — `launch_game`, `run_script`, `read_script_api`
    wired to the client + game manager.
-5. **TUI** — transcript, streaming-thoughts panel, status bar, input
-   (pause/kill). Goroutine↔channel decoupling.
-6. **Model loop** — system prompt, tool defs, UTC header, the think→act→
+5. ⬜ **TUI** — shell is done (full-screen, transcript, status, keys); remaining:
+   streaming-thoughts panel, top status bar, input (pause/kill). Goroutine↔
+   channel decoupling.
+6. ⬜ **Model loop** — system prompt, tool defs, UTC header, the think→act→
    observe cycle.
-7. **Systemd** — `lechonk` unit; verify kill→game-dies; verify `restart`
+7. ⬜ **Systemd** — `lechonk` unit; verify kill→game-dies; verify `restart`
    reloads the mod.
-8. **Smoke test** — LeChonk reads the API, launches the game, loads the save,
+8. ⬜ **Smoke test** — LeChonk reads the API, launches the game, loads the save,
    walks to the TV, and shows everything as it goes.
 
 ## Risks
