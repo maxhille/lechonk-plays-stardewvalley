@@ -26,8 +26,16 @@ func TestStreamerModeShowsOnlyWords(t *testing.T) {
 		thoughtEvent{Kind: evStart, Turn: 0, Text: ""},
 		thoughtEvent{Kind: evInfo, Turn: 0, Text: "starting Le Chonk…"},
 	)
-	if !strings.Contains(out, "Le Chonk: heading to the TV") {
+	if !strings.Contains(out, "heading to the TV") {
 		t.Errorf("streamer mode must show his words; frame=%s", stripAnsi(out))
+	}
+	// Chat chrome: no prefix, no turn tags — the raw message alone. (The frame's
+	// title divider is expected; turn dividers between messages are not — assert
+	// that separately on renderHistory.)
+	for _, chrome := range []string{"Le Chonk:", "[t"} {
+		if strings.Contains(stripAnsi(out), chrome) {
+			t.Errorf("streamer mode leaked %q chrome; frame=%s", chrome, stripAnsi(out))
+		}
 	}
 	for _, leak := range []string{"(thinking)", "action to game", "game → model", "starting", "run_script"} {
 		if strings.Contains(stripAnsi(out), leak) {

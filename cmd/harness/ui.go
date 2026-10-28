@@ -159,7 +159,12 @@ func evLines(ev thoughtEvent, mode string) []string {
 	var lines []string
 	switch ev.Kind {
 	case evSay:
-		lines = []string{"Le Chonk: " + ev.Text}
+		if streamer {
+			// Chat view: the raw message alone — viewers know who's talking.
+			lines = []string{ev.Text}
+		} else {
+			lines = []string{"Le Chonk: " + ev.Text}
+		}
 	case evTool:
 		lines = []string{"    → action to game: " + ev.Text}
 	case evResult:
@@ -183,7 +188,8 @@ func evLines(ev thoughtEvent, mode string) []string {
 			lines = []string{"Le Chonk: DONE — day complete."}
 		}
 	}
-	if ev.Turn > 0 && len(lines) > 0 {
+	// Turn tags are debug-lane chrome — chat lines carry no numbering.
+	if !streamer && ev.Turn > 0 && len(lines) > 0 {
 		lines[0] = fmt.Sprintf("[t%d] %s", ev.Turn, lines[0])
 	}
 	return lines
@@ -258,6 +264,7 @@ func renderHistory(events []thoughtEvent, mode string, width, rows int) []string
 	if rows <= 0 {
 		return nil
 	}
+	debug := mode == modeDebug
 	var all []string
 	lastTurn := 0
 	seenTurn := false
@@ -266,7 +273,8 @@ func renderHistory(events []thoughtEvent, mode string, width, rows int) []string
 		if len(lines) == 0 {
 			continue
 		}
-		if ev.Turn > 0 {
+		// Turn dividers are debug-lane chrome; chat lines just flow.
+		if debug && ev.Turn > 0 {
 			if seenTurn && ev.Turn > lastTurn {
 				all = append(all, dividerStyle.Render(strings.Repeat("─", width)))
 			}

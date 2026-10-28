@@ -108,12 +108,23 @@ func TestRenderHistory(t *testing.T) {
 		}
 	}
 	joined := stripAnsi(strings.Join(out, "\n"))
-	divIdx := strings.Index(joined, "────")
-	t2Idx := strings.Index(joined, "[t2]")
-	if divIdx < 0 || t2Idx < 0 || divIdx > t2Idx {
-		t.Errorf("turn divider missing or not before the [t2] line (div=%d, t2=%d):\n%s", divIdx, t2Idx, joined)
+	// Chat view: no turn dividers, no turn tags — the messages just flow.
+	if strings.Contains(joined, "────") || strings.Contains(joined, "[t") {
+		t.Errorf("streamer render leaked turn chrome:\n%s", joined)
 	}
 	if strings.Contains(joined, "…") {
 		t.Errorf("long line was truncated instead of wrapped:\n%s", joined)
+	}
+
+	// Debug render keeps dividers and tags — its own events, since his words
+	// (evSay) are the streamer's lane and don't render in debug mode.
+	mech := []thoughtEvent{
+		{Kind: evTool, Turn: 1, Text: "run_script(moveUp(20))"},
+		{Kind: evResult, Turn: 1, Text: "{\"x\":3}"},
+		{Kind: evTool, Turn: 2, Text: "run_script(tap('A'))"},
+	}
+	dbg := stripAnsi(strings.Join(renderHistory(mech, modeDebug, 40, 10), "\n"))
+	if !strings.Contains(dbg, "────") || !strings.Contains(dbg, "[t2]") {
+		t.Errorf("debug render lost its turn chrome:\n%s", dbg)
 	}
 }
