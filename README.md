@@ -155,11 +155,13 @@ re-planning; his hidden reasoning (`reasoning_content`) is shown as gold
   is the run's lifetime handle).
 - **Sandbox with no OS access.** MoonSharp runs stripped of `io`/`os`; scripts can only
   call the exposed Bot API. The API whitelist *is* the security boundary.
-- **Prompt cache discipline (planned).** Stable prefix (system prompt → tools →
-  append-only turns), volatile data rides in the last message, one
-  `prompt_cache_key` per run. Compaction fires near a tunable max context length and
+- **Prompt cache discipline.** Every request carries a constant
+  `prompt_cache_key` (`lechonk-plays-stardewvalley`), so an endpoint that
+  supports it (e.g. Mistral, where cached tokens bill at 10%) can cache the
+  shared conversation prefix; local servers ignore the field. Still planned:
+  stable-prefix hygiene and compaction (near a tunable max context length and
   at day boundaries; the day summary carries the current goals forward so
-  compaction stays lossless.
+  compaction stays lossless).
 - **Graceful shutdown.** Harness exit (signal or `q`) → stop the model loop →
   reap the game process tree (SIGTERM, then SIGKILL for survivors). Killing the
   harness cgroup always takes the game down with it.
@@ -221,7 +223,7 @@ Lua scripts see a `bot` table:
 - [ ] **Phase 3 — The farmer.** Bot API surface grows (tools, inventory, dialogue,
   beds, shops); recipes in `GET /api`; tune the model until a full in-game day
   plays sensibly end to end. Also queued from Phase 2: streaming model output,
-  per-turn UTC header, prompt-cache key, compaction, top status bar, and the
+  per-turn UTC header, compaction, top status bar, and the
   flake `buildGoApplication` package.
 - [ ] **Phase 4 — The submission.** Clean repo, README/description, demo video
   (format TBD), post to Discord before 29 October.

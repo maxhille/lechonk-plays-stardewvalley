@@ -96,18 +96,26 @@ type Usage struct {
 	Completion int `json:"completion"`
 }
 
+// promptCacheKey is sent with every request so an endpoint that supports
+// prompt caching (e.g. Mistral, where cached tokens bill at 10%) can cache
+// Le Chonk's shared conversation prefix. Endpoints that don't know the
+// field (like the local server) ignore it.
+const promptCacheKey = "lechonk-plays-stardewvalley"
+
 // Chat is one non-streaming completion.
 func (c *ModelClient) Chat(ctx context.Context, messages []ChatMessage, tools []Tool) (*ChatResponse, error) {
 	req := struct {
-		Model    string        `json:"model"`
-		Messages []ChatMessage `json:"messages"`
-		Tools    []Tool        `json:"tools,omitempty"`
-		Stream   bool          `json:"stream"`
+		Model          string        `json:"model"`
+		Messages       []ChatMessage `json:"messages"`
+		Tools          []Tool        `json:"tools,omitempty"`
+		Stream         bool          `json:"stream"`
+		PromptCacheKey string        `json:"prompt_cache_key,omitempty"`
 	}{
-		Model:    c.model,
-		Messages: messages,
-		Tools:    tools,
-		Stream:   false,
+		Model:          c.model,
+		Messages:       messages,
+		Tools:          tools,
+		Stream:         false,
+		PromptCacheKey: promptCacheKey,
 	}
 	body, err := json.Marshal(req)
 	if err != nil {
