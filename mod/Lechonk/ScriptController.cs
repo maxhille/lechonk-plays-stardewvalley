@@ -122,6 +122,7 @@ public class ScriptController
             botTable["listObjects"] = (Func<object?>)(() => _botApi.ListObjects());
             botTable["listTerrainFeatures"] = (Func<object?>)(() => _botApi.ListTerrainFeatures());
             botTable["getWarps"] = (Func<object?>)(() => _botApi.GetWarps());
+            botTable["getMailbox"] = (Func<object?>)(() => _botApi.GetMailbox());
             botTable["listNpcs"] = (Func<object?>)(() => _botApi.ListNpcs());
             botTable["listAnimals"] = (Func<object?>)(() => _botApi.ListAnimals());
             botTable["getEnergy"] = (Func<object?>)(() => _botApi.GetEnergy());

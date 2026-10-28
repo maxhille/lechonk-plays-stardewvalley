@@ -560,12 +560,11 @@ Tools
       (null when nothing changed) — read it; it tells you what you just picked
       up or received, so you never need to re-check getInventory after an
       interaction.
-    * newMail: true when unread mail waits in the farmhouse mailbox — the
-      flag on the box is up. The mailbox is by the farmhouse front door (it
-      is a building tile, not an object, so no probe can see it — trust this
-      flag). To read mail: stand next to the mailbox, face it, tap A. The
-      letter opens as a menu; read it, it often contains quests or gifts,
-      then close it with tap('B').
+    * newMail: true when unread mail waits in the farmhouse mailbox. Find it
+      with bot.getMailbox() (it returns {x, y, mailWaiting} — the mailbox is a
+      building tile, invisible to getTileObject, so don't scan for it). Walk
+      to the tile, stand adjacent, face it, tap A: the letter opens as a menu
+      (it often contains quests or gifts). Close it with tap('B').
 
 Lua (bot) basics — you see a bot table:
 - bot.moveUp(ticks), bot.moveRight(ticks), bot.moveDown(ticks), bot.moveLeft(ticks)
@@ -575,16 +574,21 @@ Lua (bot) basics — you see a bot table:
   LT/RT (cycle hotbar item), LB/RB (shift hotbar)
 - bot.cursorUp/Down/Left/Right(ticks)  move the cursor (right stick); scrolls in menus
 - bot.getTime(), bot.getDate()        the in-game clock / date
-- bot.getPosition(), bot.getFacing()   where you are (x, y) and which way you face
-  (interaction targets the faced tile — check facing after positioning)
-- bot.isTilePassable(x,y), bot.getTileObject(x,y)   probe the map — walls/buildings,
-  then what's on the tile. NOTE: isTilePassable ignores trees/weeds/stones/
-  twigs/furniture — getTileObject tells you what actually blocks; see the
-  tool table below for how to clear each one.
+- bot.getPosition(), bot.getFacing()   where you are and which way you face
+  (interaction targets the faced tile — check facing after positioning).
+  getPosition returns integer tiles (x, y) AND exact floats (fx, fy) —
+  movement is continuous, so you can stop a quarter-tile off; use fx/fy
+  to see it, and a short move burst to center yourself.
+- bot.isTilePassable(x,y), bot.getTileObject(x,y)   probe the map — walls/
+  building footprints, then what's on the tile. NOTE: isTilePassable ignores
+  trees/weeds/stones/twigs/furniture — getTileObject tells you what actually
+  blocks; see the tool table below for how to clear each one.
 - bot.listObjects()                   placed objects on the floor (chests, machines, items)
 - bot.listTerrainFeatures()           trees, weeds, stones, hoe-dirt — hoe-dirt entries carry watered, and when planted: crop (name) + ready
 - bot.listFurniture()                 furniture with footprints {name, x, y, w, h, isBed}
 - bot.getWarps()                      doors/exits of this location {x, y, target, ...}
+- bot.getMailbox()                    the farmhouse mailbox {x, y, mailWaiting} — use it
+  when newMail is true (the mailbox is invisible to getTileObject)
 - bot.listNpcs(), bot.listAnimals()   who and what is in this location {name, x, y}
 - bot.getEnergy()                     your stamina {current, max}
 - bot.getInventory()                  what you are holding
@@ -608,8 +612,9 @@ interact with one, watch newInventoryItems in the response (and a dialogue
 may announce the gift). An emptied gift box can vanish from its tile, and
 its items are then in your inventory, not on the ground.
 
-Clearing blockers: isTilePassable ONLY checks walls/buildings — it says true
-for tiles that trees, weeds, stones, twigs and furniture block. When a move
+Clearing blockers: isTilePassable says true for tiles that trees, weeds,
+stones, twigs and furniture block (walls and building footprints it does
+report — including the farmhouse and its mailbox tile). When a move
 comes up short, probe the tile ahead with getTileObject; most blockers are
 removable with the right tool:
 * Stone -> selectTool('Pickaxe'), face it, tap X (breaks it, may drop Stone)

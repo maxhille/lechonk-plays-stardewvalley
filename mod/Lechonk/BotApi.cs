@@ -139,18 +139,42 @@ public class BotApi
     {
         var f = Game1.player;
         if (f == null) return null;
-        return new Dictionary<string, object?> { ["x"] = f.Tile.X, ["y"] = f.Tile.Y };
+        // Movement is continuous (float pixels). x/y are the tile of the
+        // bounding-box CENTER (the game's own Tile property) — the 48x32 box
+        // can straddle two tiles, and a stopped player can sit anywhere in
+        // between. fx/fy expose the exact float position so the agent can
+        // see "a quarter into the field" and correct with short bursts.
+        var pos = f.Position;
+        return new Dictionary<string, object?>
+        {
+            ["x"] = f.Tile.X,
+            ["y"] = f.Tile.Y,
+            ["fx"] = Math.Round(pos.X / 64.0, 2),
+            ["fy"] = Math.Round(pos.Y / 64.0, 2),
+        };
     }
 
-    /// <summary>The game's raw isTilePassable: true unless the tile is a wall or
-    /// building footprint. Does not account for trees, objects or furniture —
-    /// those block movement too.</summary>
+    /// <summary>Can the player stand on this tile? Checks the game's map-layer
+    /// passability PLUS runtime buildings (their footprints are not on the
+    /// map layers, so the raw check alone would call a farmhouse "passable").
+    /// Still does not account for trees, objects or furniture — those block
+    /// movement too.</summary>
     public bool IsTilePassable(object? x, object? y)
     {
         var location = Game1.currentLocation;
         var tx = Convert.ToInt32(x);
         var ty = Convert.ToInt32(y);
-        return location.isTilePassable(new Vector2(tx, ty));
+        if (!location.isTilePassable(new Vector2(tx, ty)))
+            return false;
+        // Runtime-placed buildings (farmhouse, sheds, coops…) are colliders
+        // the map layers don't know about — mirror the player's real collision.
+        var tile = new Vector2(tx, ty);
+        foreach (var b in location.buildings)
+        {
+            if (b.occupiesTile(tile) && !b.isTilePassable(tile))
+                return false;
+        }
+        return true;
     }
 
     /// <summary>Get the object on the tile at (x, y), or null.</summary>
@@ -325,13 +349,18 @@ public class BotApi
         return Context.IsWorldReady && Game1.mailbox.Count > 0;
     }
 
-    /// <summary>The farmhouse mailbox tile — where to stand to read mail.
-    /// Mirrors the game's own resolution (farmhouse action tile, else map
-    /// default). Interact by standing adjacent, facing it, and tapping A.</summary>
-    public object? GetMailboxPosition()
+    /// <summary>The farmhouse mailbox: where it is and whether mail waits.
+    /// Mirrors the game's own position resolution (farmhouse action tile, else
+    /// map default). Interact by standing adjacent, facing it, and tapping A.</summary>
+    public object? GetMailbox()
     {
         var p = Game1.player.getMailboxPosition();
-        return new Dictionary<string, object?> { ["x"] = p.X, ["y"] = p.Y };
+        return new Dictionary<string, object?>
+        {
+            ["x"] = p.X,
+            ["y"] = p.Y,
+            ["mailWaiting"] = HasNewMail(),
+        };
     }
 
     /// <summary>Take a reference snapshot of the player's inventory, for
@@ -760,8 +789,8 @@ public class BotApi
                 new { name = "bot.moveLeft(ticks) / bot.moveRight(ticks) / bot.moveUp(ticks) / bot.moveDown(ticks)", description = "Hold the LEFT thumbstick in a direction for `ticks` input ticks. Movement stops automatically when the script ends. Roughly 10-16 ticks per tile." },
                 new { name = "bot.cursorLeft(ticks) / bot.cursorRight(ticks) / bot.cursorUp(ticks) / bot.cursorDown(ticks)", description = "Hold the RIGHT thumbstick (the cursor) in a direction for `ticks` ticks. In menus the cursor also scrolls. Keep it short: holding the right stick opens the emote wheel." },
                 new { name = "bot.wait(ticks)", description = "Wait for the given number of ticks." },
-                new { name = "bot.getPosition()", description = "Your current tile position {x, y} (0-indexed)." },
-                new { name = "bot.isTilePassable(x, y)", description = "The game's own static check: true unless the tile is a wall or building footprint. It does NOT account for trees, weeds, stones, twigs or furniture — those block movement too. Most are removable with a tool (pickaxe: stone, axe: twigs/trees, scythe: weeds): selectTool, face the blocker, tap X." },
+                new { name = "bot.getPosition()", description = "Your position: x/y are the tile under you (0-indexed); fx/fy are the exact float tile position — movement is continuous, so you can stop between tiles. Aim for integer fx/fy when exact positioning matters." },
+                new { name = "bot.isTilePassable(x, y)", description = "Can the player stand on this tile? False for walls and building footprints (incl. runtime buildings like the farmhouse — the mailbox sits on its wall). True does NOT mean walkable: trees, weeds, stones, twigs and furniture also block (check getTileObject / listObjects). Most blockers are removable with a tool (pickaxe: stone, axe: twigs/trees, scythe: weeds): selectTool, face the blocker, tap X." },
                 new { name = "bot.getTileObject(x, y)", description = "Get the object or terrain feature at tile (x, y) — placed objects, plus trees, hoe-dirt, bushes and grass — or null." },
                 new { name = "bot.listObjects()", description = "List every placed object on the floor of the current location as {name, x, y} — chests, machines, items, gifts, plus ground debris: Stone, Weeds and Twig. (Trees, grass, bushes and hoe-dirt/crops are terrain features — use listTerrainFeatures.)" },
                 new { name = "bot.listTerrainFeatures()", description = "List every terrain feature in the current location as {name, x, y}: trees (Tree/FruitTree), grass, bushes, hoe-dirt (planted soil). HoeDirt entries also carry watered, and when a crop is planted: crop (name) and ready (can be harvested). (Stone, Weeds and Twig are objects — use listObjects.)" },
@@ -770,6 +799,7 @@ public class BotApi
                 new { name = "bot.selectTool(name)", description = "Select the hotbar slot holding the item/tool with this name (case-insensitive), e.g. 'Hoe' or 'Watering Can'. Direct equivalent of LT/RT cycling. Returns 'selected <name>' or an error if not held." },
                 new { name = "bot.listFurniture()", description = "All furniture in the current location: {name, type, x, y, w, h, isBed}. w/h are its size in tiles, so you know how many tiles it blocks (a 2x2 TV blocks four tiles)." },
                 new { name = "bot.getWarps()", description = "All warp points (doors/exits) in the current location: {x, y, target, targetX, targetY}. Walk onto a warp tile to travel there." },
+                new { name = "bot.getMailbox()", description = "The farmhouse mailbox {x, y, mailWaiting}. It is a building tile — invisible to getTileObject — so use this to find it. Stand adjacent, face it, tap A to read mail (opens as a menu)." },
                 new { name = "bot.listNpcs()", description = "Every NPC currently in the location: {name, x, y}." },
                 new { name = "bot.listAnimals()", description = "Every farm animal in the location: {name, x, y}." },
                 new { name = "bot.getTime()", description = "Current in-game time {hour, minute}. The clock runs 06:00-26:00, so early morning hours can be 24 or 25." },
