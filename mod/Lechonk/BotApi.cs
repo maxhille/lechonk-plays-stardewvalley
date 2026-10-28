@@ -257,7 +257,14 @@ public class BotApi
     public object? GetMenuType()
     {
         var menu = Game1.activeClickableMenu;
-        if (menu == null) return null;
+        if (menu == null)
+        {
+            // The emote wheel is not a ClickableMenu but it blocks movement,
+            // so surface it here too.
+            if (Game1.emoteMenu != null)
+                return new Dictionary<string, object?> { ["type"] = "EmoteMenu" };
+            return null;
+        }
 
         // Return a Dictionary, not an anonymous object: MoonSharp cannot
         // convert anonymous CLR types into Lua values.
@@ -449,7 +456,7 @@ public class BotApi
                 new { name = "bot.listFurniture()", description = "All furniture in the current location: {name, x, y}." },
                 new { name = "bot.getTime()", description = "Current in-game time {hour, minute}. The clock runs 06:00-26:00, so early morning hours can be 24 or 25." },
                 new { name = "bot.getDate()", description = "Return {season, day}." },
-                new { name = "bot.getMenuType()", description = "Info about the active menu, or null." },
+                new { name = "bot.getMenuType()", description = "Info about the active menu or the emote wheel (type \"EmoteMenu\"), or null." },
                 new { name = "bot.getMenuButtons()", description = "Button info for the active menu." },
                 new { name = "bot.clickMenuButton(index)", description = "Click button at index on the active menu." },
                 new { name = "bot.advanceDialogue()", description = "Advance the current dialogue." },
