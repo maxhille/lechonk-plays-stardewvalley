@@ -21,7 +21,8 @@ const (
 	evStart   thoughtEventKind = iota // Le Chonk starting
 	evStop                            // Le Chonk stopped / cancelled
 	evInfo                            // harness notice (launching, waiting…)
-	evThought                         // Le Chonk's plain-text thought
+	evSay                             // Le Chonk's visible words (streamer mode)
+	evThink                           // Le Chonk's hidden reasoning (log only)
 	evTool                            // Le Chonk called a tool
 	evResult                          // a tool's result
 	evError                           // something went wrong
@@ -85,8 +86,10 @@ func kindLabel(k thoughtEventKind) string {
 		return "done"
 	case evInfo:
 		return "harness"
-	case evThought:
-		return "thought"
+	case evSay:
+		return "say"
+	case evThink:
+		return "think"
 	case evTool:
 		return "tool"
 	case evResult:
@@ -185,22 +188,16 @@ func (m *modelState) loop() {
 		m.ctxTokens.Store(int64(resp.Usage.Prompt))
 		messages = append(messages, msg)
 
-		// Show him as a thought. This model does its real thinking in a hidden
-		// lane (reasoning_content); the visible content is often empty when it
-		// acts. So emit the reasoning too — fall back to it when the visible
-		// text is blank.
+		// Emit his visible words (evSay) and his hidden reasoning (evThink) as
+		// separate events so the TUI can show one and not the other. The model
+		// does the same work either way — this only labels the two lanes.
 		visible := strings.TrimSpace(msg.Content)
 		reasoning := strings.TrimSpace(msg.Reasoning)
-		switch {
-		case visible == "" && reasoning == "":
-			// pure tool call, no words; nothing to show as a thought.
-		case visible != "" && reasoning != "":
-			m.emitText(evThought, turn, visible)
-			m.emitText(evThought, turn, "  (thinking) "+truncateDisplay(reasoning, 500))
-		case visible != "":
-			m.emitText(evThought, turn, visible)
-		default: // reasoning only
-			m.emitText(evThought, turn, truncateDisplay(reasoning, 500))
+		if visible != "" {
+			m.emitText(evSay, turn, visible)
+		}
+		if reasoning != "" {
+			m.emitText(evThink, turn, "  (thinking) "+truncateDisplay(reasoning, 500))
 		}
 		if isDone(msg.Content) {
 			m.emitText(evDone, turn, "Le Chonk says DONE — ending the day.")

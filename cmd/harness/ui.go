@@ -46,6 +46,14 @@ var (
 			BorderForeground(lipgloss.Color(palBorder))
 )
 
+// Display modes for the transcript. Streamer (the default at launch) shows only
+// Le Chonk's words; debug shows the mechanical view (tool calls, results,
+// errors, harness notes). Press d to toggle between them.
+const (
+	modeStreamer = "streamer"
+	modeDebug    = "debug"
+)
+
 type tickMsg struct{}
 
 // uiModel implements tea.Model (v1): Init() Cmd, Update(Msg) (Model, Cmd), View() string.
@@ -56,8 +64,9 @@ type uiModel struct {
 	ms        *modelState       // the Le Chonk thinking loop
 	events    chan thoughtEvent // line events the model loop pushes into the transcript
 	lines     []string
-	paused    bool // game paused via the admin /pause toggle (key p)
-	w, h      int // terminal size, set from tea.WindowSizeMsg (sent once, then on resize)
+	mode      string // modeStreamer (default) or modeDebug — switches what View shows
+	paused    bool   // game paused via the admin /pause toggle (key p)
+	w, h      int    // terminal size, set from tea.WindowSizeMsg (sent once, then on resize)
 }
 
 func newUIModel(gm *GameManager, gc *gameController, debugPort int, ms *modelState, events chan thoughtEvent) uiModel {
@@ -68,6 +77,7 @@ func newUIModel(gm *GameManager, gc *gameController, debugPort int, ms *modelSta
 		ms:        ms,
 		events:    events,
 		lines:     []string{},
+		mode:      modeStreamer,
 	}
 }
 
@@ -129,11 +139,30 @@ func (m *uiModel) togglePause() {
 	}
 }
 
-// evLines turns one model-loop event into one or more transcript lines.
-// Multi-line payloads (pretty-printed JSON results) split into several lines
-// so the frame wraps and pads each one. The model's plain-text thoughts are
-// not shown in the TUI at all (they still go to the transcript log).
-func evLines(ev thoughtEvent) []string {
+// evLines turns one model-loop event into zero or more transcript lines for the
+// given display mode. Multi-line payloads (pretty-printed JSON results) split
+// into several lines so the frame wraps and pads each one.
+//
+// Streamer mode shows only Le Chonk's words (evSay) and the session lifecycle
+// (start / stop / done). Debug mode shows the mechanical view — tool calls,
+// results, errors, harness notices, and the lifecycle — and none of his words.
+// His hidden reasoning (evThink) is never shown in the TUI (log only).
+func evLines(ev thoughtEvent, mode string) []string {
+	streamer := mode == modeStreamer
+	switch ev.Kind {
+	case evStart, evStop, evDone:
+		// lifecycle: always shown
+	case evSay:
+		if !streamer {
+			return nil
+		}
+	case evTool, evResult, evError, evInfo:
+		if streamer {
+			return nil
+		}
+	default: // evThink and anything else: never shown in the TUI
+		return nil
+	}
 	var lines []string
 	switch ev.Kind {
 	case evStart:
@@ -142,8 +171,8 @@ func evLines(ev thoughtEvent) []string {
 		lines = []string{"Le Chonk stopped."}
 	case evDone:
 		lines = []string{"Le Chonk: DONE — day complete."}
-	case evThought:
-		return nil // not shown in the TUI
+	case evSay:
+		lines = []string{"Le Chonk: " + ev.Text}
 	case evTool:
 		lines = []string{"    → action to game: " + ev.Text}
 	case evResult:
@@ -157,8 +186,6 @@ func evLines(ev thoughtEvent) []string {
 		lines = []string{"    ✗ error: " + ev.Text}
 	case evInfo:
 		lines = []string{"    · " + ev.Text}
-	default:
-		lines = []string{ev.Text}
 	}
 	if ev.Turn > 0 && len(lines) > 0 {
 		lines[0] = fmt.Sprintf("[t%d] %s", ev.Turn, lines[0])
@@ -300,8 +327,8 @@ func (m uiModel) frame() string {
 	title := "Le Chonk plays Stardew Valley"
 	status := statusLine(s, m.ms, m.gm, m.paused)
 	footer := fmt.Sprintf(
-		"l start Le Chonk   s stop   r restart   p pause   q quit   debug http://127.0.0.1:%d",
-		m.debugPort,
+		"mode: %s (d toggle)   l start   s stop   r restart   p pause   q quit   debug http://127.0.0.1:%d",
+		strings.ToUpper(m.mode), m.debugPort,
 	)
 	divider := strings.Repeat("─", insideW)
 
@@ -405,7 +432,7 @@ func (m uiModel) plainView() string {
 	lines = append(lines, "")
 	lines = append(lines, renderTranscript(m.lines, 80, 12)...)
 	lines = append(lines, "")
-	lines = append(lines, "keys:  l start Le Chonk · s stop · r restart · p pause · q quit   (auto-refreshes ~0.2s)")
+	lines = append(lines, fmt.Sprintf("mode: %s (d)   keys: l start · s stop · r restart · p pause · q quit   (auto-refreshes ~0.2s)", strings.ToUpper(m.mode)))
 	return strings.Join(lines, "\n")
 }
 
@@ -413,6 +440,7 @@ func (m uiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	mm := uiModel(m)
 
 	// Drain any model-loop events (non-blocking so we never stall the TUI).
+	// Lines are filtered by the current display mode before they're added.
 drain:
 	for {
 		select {
@@ -420,7 +448,7 @@ drain:
 			if !ok {
 				break drain
 			}
-			for _, ln := range evLines(ev) {
+			for _, ln := range evLines(ev, mm.mode) {
 				mm.addLine(ln)
 			}
 		default:
@@ -470,8 +498,18 @@ drain:
 				mm.addLine("restarting Le Chonk…")
 			case "p":
 				mm.togglePause()
+			case "d":
+				// Toggle the transcript view. Clear the old lines so the switch is
+				// clean (the full history stays in the transcript log file).
+				if mm.mode == modeStreamer {
+					mm.mode = modeDebug
+				} else {
+					mm.mode = modeStreamer
+				}
+				mm.lines = nil
+				mm.addLine("display mode: " + mm.mode)
 			case "?":
-				mm.addLine("keys: l start Le Chonk · s stop · r restart · p pause · q quit · ? help")
+				mm.addLine("keys: l start · s stop · r restart · p pause · d mode · q quit · ? help")
 			}
 		}
 	}
