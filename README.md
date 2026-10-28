@@ -189,7 +189,7 @@ as the request body:
 ```
 curl -s -X POST http://127.0.0.1:17642/script \
   -H 'Content-Type: application/lua' \
-  -d 'local m = bot.getMapSchema()\nreturn {x = m.player.x, y = m.player.y}'
+  -d 'return bot.getPosition()'
 ```
 No JSON wrapper, no `scriptId`. Bodies are capped at 1024 bytes (a `413` above
 that) — one action at a time. The response is written back on the same connection after
@@ -204,14 +204,18 @@ Lua scripts see a `bot` table:
   Movement stops automatically when a script ends.
 - **Saves:** `bot.listSaves()`, `bot.loadGame(slotName)` (from the title screen,
   skips character creation), `bot.exitToTitle()`.
-- **State:** `bot.getPosition()`, `bot.isWalkable(x, y)`, `bot.getTileObject(x, y)`,
-  `bot.getInventory()`, `bot.getTime()`, `bot.getDate()`, `bot.wait(ticks)`.
+- **State:** `bot.getPosition()`, `bot.isTilePassable(x, y)`, `bot.getTileObject(x, y)`,
+  `bot.getEnergy()`, `bot.getInventory()`, `bot.getTime()`, `bot.getDate()`, `bot.wait(ticks)`.
+- **Location:** `bot.listObjects()` (placed objects), `bot.listTerrainFeatures()`
+  (trees, weeds, stones, hoe-dirt — with `watered`/`crop`/`ready` for planted dirt),
+  `bot.listFurniture()`, `bot.getWarps()` (doors/exits), `bot.listNpcs()`,
+  `bot.listAnimals()`.
 - **Menus/dialogue:** `bot.getMenuType()` (type, buttonCount, **text** — the
   narrative dialogue text), `bot.getMenuButtons()` (component index/type/
   label/visible/bounds — **label** is the response text for `DialogueBox`
   menus), `bot.clickMenuButton(index)`, `bot.advanceDialogue()`,
   `bot.selectDialogueOption(index)`, `bot.closeDialogue()`.
-- **Debug:** `bot.listFurniture()`, `bot.print(msg)`.
+- **Debug:** `bot.print(msg)`.
 
 ## Roadmap
 

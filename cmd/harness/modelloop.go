@@ -487,8 +487,12 @@ Lua (bot) basics — you see a bot table:
   (movement stops automatically when a script ends; ~10-16 ticks per tile)
 - bot.getTime(), bot.getDate()        the in-game clock / date
 - bot.getPosition()                   where you are (x, y)
-- bot.isWalkable(x,y), bot.getTileObject(x,y)   probe the map
-- bot.listObjects()                   what is on the floor of this location (gifts, stones, weeds...)
+- bot.isTilePassable(x,y), bot.getTileObject(x,y)   probe the map — walls/buildings, then what's on the tile
+- bot.listObjects()                   placed objects on the floor (chests, machines, items)
+- bot.listTerrainFeatures()           trees, weeds, stones, hoe-dirt — hoe-dirt entries carry watered, and when planted: crop (name) + ready
+- bot.listFurniture()                 furniture with footprints {name, x, y, w, h, isBed}
+- bot.getWarps()                      doors/exits of this location {x, y, target, ...}
+- bot.listNpcs(), bot.listAnimals()   who and what is in this location {name, x, y}
 - bot.getEnergy()                     your stamina {current, max}
 - bot.getInventory()                  what you are holding
 - bot.getMenuType(), bot.getMenuButtons()   what menu/dialogue is open
@@ -542,7 +546,7 @@ Only start playing once the world is ready.
 
 Begin: launch the game, load your save, and read the API.
 On your first day you wake up in your house. Explore it before you leave:
-read the map (bot.getMapSchema()), list the furniture (bot.listFurniture()),
+list the furniture (bot.listFurniture()),
 check the floor for items (bot.listObjects()), and find the bed (that is where
 you sleep), the TV, and the door to the farm.
 Do not leave the house until you have done this. Then go outside and get to work.

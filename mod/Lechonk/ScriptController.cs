@@ -101,10 +101,13 @@ public class ScriptController
             botTable["print"] = (Func<object?, object?>)(msg => { _botApi.Print(msg?.ToString()); return null; });
             botTable["tapButton"] = (Func<object?, object?>)(b => _botApi.TapButton(b));
             botTable["wait"] = (Func<object?, object?>)(t => _botApi.Wait(t));
-            botTable["getMapSchema"] = (Func<object?>)(() => _botApi.GetMapSchema());
-            botTable["isWalkable"] = (Func<object?, object?, object?>)((x, y) => _botApi.IsWalkable(x, y));
+            botTable["isTilePassable"] = (Func<object?, object?, object?>)((x, y) => _botApi.IsTilePassable(x, y));
             botTable["getTileObject"] = (Func<object?, object?, object?>)((x, y) => _botApi.GetTileObject(x, y));
             botTable["listObjects"] = (Func<object?>)(() => _botApi.ListObjects());
+            botTable["listTerrainFeatures"] = (Func<object?>)(() => _botApi.ListTerrainFeatures());
+            botTable["getWarps"] = (Func<object?>)(() => _botApi.GetWarps());
+            botTable["listNpcs"] = (Func<object?>)(() => _botApi.ListNpcs());
+            botTable["listAnimals"] = (Func<object?>)(() => _botApi.ListAnimals());
             botTable["getEnergy"] = (Func<object?>)(() => _botApi.GetEnergy());
             botTable["getPosition"] = (Func<object?>)(() => _botApi.GetPosition());
             botTable["getInventory"] = (Func<object?>)(() => _botApi.GetInventory());

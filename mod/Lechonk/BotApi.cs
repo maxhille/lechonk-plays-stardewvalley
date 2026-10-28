@@ -78,61 +78,6 @@ public class BotApi
 
     // ── State ─────────────────────────────────────────────────────────
 
-    /// <summary>Map schema for the current location: name, tile dimensions, the
-    /// player's tile, a walkability grid ('.' walkable, '#' blocked, one string
-    /// per row), and the warp points (doors/exits with their targets). Built
-    /// from the game's xTile map (GameLocation.map) and warp list.</summary>
-    public object? GetMapSchema()
-    {
-        try
-        {
-            var loc = Game1.currentLocation;
-            if (loc == null || loc.map == null)
-                return null;
-
-            int w = loc.map.Layers[0].LayerWidth;
-            int h = loc.map.Layers[0].LayerHeight;
-
-            var rows = new string[h];
-            for (int y = 0; y < h; y++)
-            {
-                var sb = new System.Text.StringBuilder(w);
-                for (int x = 0; x < w; x++)
-                    sb.Append(loc.isTilePassable(new Vector2(x, y)) ? '.' : '#');
-                rows[y] = sb.ToString();
-            }
-
-            var warps = new List<object>();
-            foreach (var warp in loc.warps)
-            {
-                warps.Add(new Dictionary<string, object?>
-                {
-                    ["x"] = warp.X,
-                    ["y"] = warp.Y,
-                    ["target"] = warp.TargetName,
-                    ["targetX"] = warp.TargetX,
-                    ["targetY"] = warp.TargetY,
-                });
-            }
-
-            var f = Game1.player;
-            return new Dictionary<string, object?>
-            {
-                ["location"] = loc.Name,
-                ["width"] = w,
-                ["height"] = h,
-                ["player"] = new Dictionary<string, object?> { ["x"] = f.Tile.X, ["y"] = f.Tile.Y },
-                ["walkable"] = rows,
-                ["warps"] = warps.ToArray(),
-            };
-        }
-        catch (Exception ex)
-        {
-            _monitor.Log($"getMapSchema failed: {ex}", LogLevel.Warn);
-            return "error: " + ex.Message;
-        }
-    }
-
     /// <summary>Player's current tile position {x, y} (0-indexed).</summary>
     public object? GetPosition()
     {
@@ -141,8 +86,10 @@ public class BotApi
         return new Dictionary<string, object?> { ["x"] = f.Tile.X, ["y"] = f.Tile.Y };
     }
 
-    /// <summary>Check if the tile at (x, y) is walkable.</summary>
-    public bool IsWalkable(object? x, object? y)
+    /// <summary>The game's raw isTilePassable: true unless the tile is a wall or
+    /// building footprint. Does not account for trees, objects or furniture —
+    /// those block movement too.</summary>
+    public bool IsTilePassable(object? x, object? y)
     {
         var location = Game1.currentLocation;
         var tx = Convert.ToInt32(x);
@@ -190,6 +137,99 @@ public class BotApi
                 ["name"] = kv.Value.Name,
                 ["x"] = (int)kv.Key.X,
                 ["y"] = (int)kv.Key.Y,
+            });
+        }
+        return items;
+    }
+
+    /// <summary>List every terrain feature (trees, weeds, stones, hoe-dirt/crops,
+    /// bushes, grass): {name, x, y}. HoeDirt also reports watered and, when a crop
+    /// is planted, crop (name) and ready.</summary>
+    public object? ListTerrainFeatures()
+    {
+        var loc = Game1.currentLocation;
+        var items = new List<object>();
+        foreach (var kv in loc.terrainFeatures.Pairs)
+        {
+            var tf = kv.Value;
+            if (tf == null) continue;
+            var entry = new Dictionary<string, object>
+            {
+                ["name"] = tf.GetType().Name,
+                ["x"] = (int)kv.Key.X,
+                ["y"] = (int)kv.Key.Y,
+            };
+            if (tf is StardewValley.TerrainFeatures.HoeDirt dirt)
+            {
+                entry["watered"] = dirt.isWatered();
+                if (dirt.crop != null)
+                {
+                    entry["crop"] = CropName(dirt.crop);
+                    entry["ready"] = dirt.readyForHarvest();
+                }
+            }
+            items.Add(entry);
+        }
+        return items;
+    }
+
+    private static string CropName(Crop crop)
+    {
+        try { return ItemRegistry.GetData(crop.indexOfHarvest.Value).DisplayName; }
+        catch { return crop.indexOfHarvest.Value; }
+    }
+
+    /// <summary>List every warp point (doors/exits) in the current location:
+    /// {x, y, target, targetX, targetY}.</summary>
+    public object? GetWarps()
+    {
+        var loc = Game1.currentLocation;
+        var items = new List<object>();
+        foreach (var warp in loc.warps)
+        {
+            items.Add(new Dictionary<string, object>
+            {
+                ["x"] = warp.X,
+                ["y"] = warp.Y,
+                ["target"] = warp.TargetName,
+                ["targetX"] = warp.TargetX,
+                ["targetY"] = warp.TargetY,
+            });
+        }
+        return items;
+    }
+
+    /// <summary>List every NPC currently in the location: {name, x, y}.</summary>
+    public object? ListNpcs()
+    {
+        var loc = Game1.currentLocation;
+        var items = new List<object>();
+        foreach (var npc in loc.characters)
+        {
+            if (npc == null) continue;
+            items.Add(new Dictionary<string, object>
+            {
+                ["name"] = npc.Name,
+                ["x"] = (int)npc.Position.X,
+                ["y"] = (int)npc.Position.Y,
+            });
+        }
+        return items;
+    }
+
+    /// <summary>List every farm animal in the location: {name, x, y}.</summary>
+    public object? ListAnimals()
+    {
+        var loc = Game1.currentLocation;
+        var items = new List<object>();
+        foreach (var animal in loc.animals.Values)
+        {
+            if (animal == null) continue;
+            items.Add(new Dictionary<string, object>
+            {
+                ["name"] = animal.Name,
+                ["x"] = (int)animal.Position.X,
+                ["y"] = (int)animal.Position.Y,
             });
         }
         return items;
@@ -490,13 +530,16 @@ public class BotApi
                 new { name = "bot.moveLeft(ticks) / bot.moveRight(ticks) / bot.moveUp(ticks) / bot.moveDown(ticks)", description = "Hold the LEFT thumbstick in a direction for `ticks` input ticks. Movement stops automatically when the script ends. Roughly 10-16 ticks per tile." },
                 new { name = "bot.wait(ticks)", description = "Wait for the given number of ticks." },
                 new { name = "bot.getPosition()", description = "Your current tile position {x, y} (0-indexed)." },
-                new { name = "bot.getMapSchema()", description = "Map schema for the current location: { location, width, height, player {x, y}, walkable (array of row strings; row i+1 is tile y=i; '.' walkable, '#' blocked), warps [{x, y, target, targetX, targetY}] }. All coordinates are 0-indexed tiles." },
-                new { name = "bot.isWalkable(x, y)", description = "Check if tile (x, y) is walkable." },
+                new { name = "bot.isTilePassable(x, y)", description = "The game's own static check: true unless the tile is a wall or building footprint. It does NOT account for trees, objects or furniture — those block movement too (check getTileObject / listObjects)." },
                 new { name = "bot.getTileObject(x, y)", description = "Get the object or terrain feature at tile (x, y) — placed objects, plus trees, hoe-dirt, bushes and grass — or null." },
-                new { name = "bot.listObjects()", description = "List every object on the floor of the current location as {name, x, y} — items (including gifts), stones, weeds, twigs." },
+                new { name = "bot.listObjects()", description = "List every placed object on the floor of the current location as {name, x, y} — chests, machines, items, gifts. (Trees, weeds, stones and hoe-dirt are terrain features — use listTerrainFeatures.)" },
+                new { name = "bot.listTerrainFeatures()", description = "List every terrain feature in the current location as {name, x, y}: trees (Tree/FruitTree), weeds, stones, twigs, grass, bushes, hoe-dirt. HoeDirt entries also carry watered, and when a crop is planted: crop (name) and ready (can be harvested)." },
                 new { name = "bot.getEnergy()", description = "Your stamina as {current, max}. When it runs low you tire: eat a meal or go to bed." },
                 new { name = "bot.getInventory()", description = "List of {name, count, id} for inventory items." },
                 new { name = "bot.listFurniture()", description = "All furniture in the current location: {name, type, x, y, w, h, isBed}. w/h are its size in tiles, so you know how many tiles it blocks (a 2x2 TV blocks four tiles)." },
+                new { name = "bot.getWarps()", description = "All warp points (doors/exits) in the current location: {x, y, target, targetX, targetY}. Walk onto a warp tile to travel there." },
+                new { name = "bot.listNpcs()", description = "Every NPC currently in the location: {name, x, y}." },
+                new { name = "bot.listAnimals()", description = "Every farm animal in the location: {name, x, y}." },
                 new { name = "bot.getTime()", description = "Current in-game time {hour, minute}. The clock runs 06:00-26:00, so early morning hours can be 24 or 25." },
                 new { name = "bot.getDate()", description = "Return {season, day}." },
                 new { name = "bot.getMenuType()", description = "Info about the active menu or the emote wheel (type \"EmoteMenu\"), or null." },
