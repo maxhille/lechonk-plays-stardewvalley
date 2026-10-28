@@ -60,7 +60,8 @@ Two buildable things:
 Run the harness:
 
 - **Directly.** `./lechonk` opens a full-screen TUI. Keys: `l` launch, `s` stop,
-  `r` restart, `q` quit (also reaps the game child). Run it under a real
+  `r` restart, `p` pause (freezes the game *and* any running script),
+  `q` quit (also reaps the game child). Run it under a real
   terminal, or `script -qc ./lechonk /tmp/lechonk.log` to log it.
 - **Via user systemd (for unattended runs).** Keeps the harness — and thus
   the game — up across a crash and makes kill-harness=kill-game airtight:
@@ -77,7 +78,10 @@ Run the harness:
 
 Endpoints, once the game is up:
 
-- **Mod Bot API** — `127.0.0.1:17642`: `POST /script`, `GET /api`.
+- **Mod Bot API** — `127.0.0.1:17642`: `POST /script`, `GET /api`, plus admin
+  `POST /pause` (opens/closes the in-game menu directly, freezes any running
+  script, works even when the game window has lost focus; not exposed to the
+  model).
 - **Harness debug API** — `127.0.0.1:17643`: `GET /status`, `POST /launch`,
   `/stop`, `/restart`.
 
@@ -175,8 +179,13 @@ re-planning; his hidden reasoning (`reasoning_content`) is shown as gold
 
 ## Bot API
 
-The mod's entire surface is `POST /script` (response: `{ result, error, ticksUsed, evt }`)
-and `GET /api` (full schema). Send the Lua code directly as the request body:
+The agent-facing surface is `POST /script` (response: `{ result, error, ticksUsed, evt }`)
+and `GET /api` (full schema). There is also an admin-only `POST /pause` (no
+body): it opens or closes the in-game menu (`GameMenu`) directly on the game
+thread — no input is involved, so it works even when the game window has lost
+focus. That is what the TUI `p` key calls, and it is not exposed to the model.
+While the menu is open the bot's script is frozen. Send the Lua code directly
+as the request body:
 ```
 curl -s -X POST http://127.0.0.1:17642/script \
   -H 'Content-Type: application/lua' \

@@ -99,6 +99,25 @@ public class HttpServer
                 HandleScript(client, reader);
                 return;
             }
+            if (method == "POST" && path == "/pause")
+            {
+                // Admin toggle (not exposed to the model): opens/closes the
+                // in-game menu (GameMenu) directly on the game thread — no
+                // input, so it works even when the game window has lost focus.
+                // While open, the bot's script is frozen.
+                PauseResponse r;
+                try
+                {
+                    r = _controller.TogglePauseBlocking();
+                }
+                catch (Exception ex)
+                {
+                    r = new PauseResponse { Ok = false, Error = ex.Message };
+                }
+                string json = JsonSerializer.Serialize(new { ok = r.Ok, paused = r.Paused, error = r.Error });
+                SendResponse(client, r.Ok ? 200 : 400, json);
+                return;
+            }
 
             string body404 = "{}";
             var writer = new StreamWriter(stream, NoBomUtf8) { AutoFlush = true };

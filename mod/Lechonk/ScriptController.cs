@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using StardewModdingAPI;
+using StardewValley;
 using MoonSharp.Interpreter;
 
 namespace Lechonk;
@@ -24,10 +25,64 @@ public class ScriptController
 
     private static readonly object Gate = new();
 
+    // Admin pause (POST /pause): while true, Advance() never resumes the
+    // script coroutine, so the bot is frozen together with the game.
+    private bool _paused;
+
+    // Pending pause toggle: queued from the HTTP thread, resolved on the next
+    // game tick by Advance().
+    private TaskCompletionSource<PauseResponse>? _pauseTcs;
+
     public ScriptController(BotApi botApi, IMonitor monitor)
     {
         _botApi = botApi;
         _monitor = monitor;
+    }
+
+    /// <summary>Blocking: queues a pause toggle to run on the next game tick
+    /// and waits for the result. The toggle opens/closes the game's in-game
+    /// menu (GameMenu) directly — no input involved, so it works even when
+    /// the game window has no focus.</summary>
+    public PauseResponse TogglePauseBlocking()
+    {
+        lock (Gate)
+        {
+            if (_pauseTcs != null) throw new InvalidOperationException("A pause toggle is already pending.");
+            _pauseTcs = new TaskCompletionSource<PauseResponse>();
+        }
+        var t = _pauseTcs.Task;
+        t.Wait();
+        return t.Result;
+    }
+
+    /// <summary>Open or close the in-game menu (GameMenu) directly, on the
+    /// game thread. State-driven: closes it if it is open, opens it if no
+    /// menu is open, and refuses when the game won't allow it (event, dialog,
+    /// or another menu up). Works with or without window focus.</summary>
+    private PauseResponse DoPauseToggle()
+    {
+        var menu = Game1.activeClickableMenu;
+        if (menu is StardewValley.Menus.GameMenu)
+        {
+            Game1.exitActiveMenu();
+            _paused = false;
+            _monitor.Log("[Lechonk] resumed (in-game menu closed)", LogLevel.Info);
+            return new PauseResponse { Ok = true, Paused = false };
+        }
+        if (menu != null)
+        {
+            return new PauseResponse { Ok = false, Error = $"another menu is open ({menu.GetType().Name})" };
+        }
+        if (!Game1.CanShowPauseMenu())
+        {
+            return new PauseResponse { Ok = false, Error = "cannot pause now — the game is busy (event or dialog)" };
+        }
+        Game1.PushUIMode();
+        Game1.activeClickableMenu = new StardewValley.Menus.GameMenu();
+        Game1.PopUIMode();
+        _paused = true;
+        _monitor.Log("[Lechonk] paused (in-game menu open, script frozen)", LogLevel.Info);
+        return new PauseResponse { Ok = true, Paused = true };
     }
 
     /// <summary>Blocking: runs <paramref name="luaCode"></paramref> as a coroutine over
@@ -156,7 +211,12 @@ public class ScriptController
     /// <summary>Advance the script by one game tick. Called from the game loop.</summary>
     public void Advance()
     {
-        if (_coro == null)
+        if (_pauseTcs != null)
+        {
+            _pauseTcs.TrySetResult(DoPauseToggle());
+            _pauseTcs = null;
+        }
+        if (_paused || _coro == null)
             return;
 
         // If the coroutine is already dead (script returned without yielding),
@@ -288,4 +348,12 @@ public class ScriptResponse
     public int TicksUsed { get; set; }
     public ScriptEvent Event { get; set; } = ScriptEvent.Completed;
     public string EventName => Event.ToString().ToLower();
+}
+
+/// <summary>Result of an admin pause toggle.</summary>
+public class PauseResponse
+{
+    public bool Ok { get; set; }
+    public bool Paused { get; set; }
+    public string? Error { get; set; }
 }

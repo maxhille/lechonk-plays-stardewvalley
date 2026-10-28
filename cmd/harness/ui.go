@@ -1,7 +1,11 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"strings"
 	"time"
 
@@ -24,6 +28,7 @@ const (
 	palThinking   = "#ffe066" // bright gold — Le Chonk's own words / thoughts
 	palFooter     = "#b8a88a" // muted tan (keys / secondary)
 	palDivider    = "#6e6a5e" // subtle warm-gray (divider line)
+	palPaused     = "#8fb8d4" // calm blue (PAUSED)
 )
 
 // Styles for the full-screen frame.
@@ -35,6 +40,7 @@ var (
 	statusRun       = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(palRunning))
 	statusStop      = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(palStopped))
 	statusExited    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(palExited))
+	statusPaused    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(palPaused))
 	footerStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color(palFooter))
 	frameStyle      = lipgloss.NewStyle().
 			Border(lipgloss.NormalBorder(), true, true, true, true). // top, right, bottom, left
@@ -51,6 +57,7 @@ type uiModel struct {
 	ms        *modelState       // the Le Chonk thinking loop
 	events    chan thoughtEvent // line events the model loop pushes into the transcript
 	lines     []string
+	paused    bool // game paused via the admin /pause toggle (key p)
 	w, h      int // terminal size, set from tea.WindowSizeMsg (sent once, then on resize)
 }
 
@@ -69,6 +76,57 @@ func (m *uiModel) addLine(s string) {
 	m.lines = append(m.lines, s)
 	if len(m.lines) > 500 {
 		m.lines = m.lines[len(m.lines)-500:]
+	}
+}
+
+// togglePause hits the mod's admin /pause endpoint: it taps Escape on the
+// game thread and freezes any running script. The response is the source of
+// truth for the pause state — the TUI does not guess.
+func (m *uiModel) togglePause() {
+	if !m.gm.APIUp() {
+		m.addLine("game not up — cannot pause")
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, fmt.Sprintf("http://127.0.0.1:%d/pause", gameAPIPort), nil)
+	if err != nil {
+		m.addLine("pause: " + err.Error())
+		return
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		m.addLine("pause failed: " + err.Error())
+		return
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		m.addLine("pause: read response: " + err.Error())
+		return
+	}
+	var out struct {
+		Ok     bool   `json:"ok"`
+		Paused bool   `json:"paused"`
+		Error  string `json:"error"`
+	}
+	if err := json.Unmarshal(body, &out); err != nil {
+		m.addLine("pause: bad response: " + string(body))
+		return
+	}
+	if !out.Ok {
+		msg := out.Error
+		if msg == "" {
+			msg = "unknown error"
+		}
+		m.addLine("pause: " + msg)
+		return
+	}
+	m.paused = out.Paused
+	if out.Paused {
+		m.addLine("game PAUSED (script frozen — p to resume)")
+	} else {
+		m.addLine("game RESUMED")
 	}
 }
 
@@ -148,9 +206,9 @@ func (m uiModel) frame() string {
 
 	s := m.gm.Status()
 	title := "Le Chonk plays Stardew Valley"
-	status := statusLine(s, m.ms, m.gm)
+	status := statusLine(s, m.ms, m.gm, m.paused)
 	footer := fmt.Sprintf(
-		"l start Le Chonk   s stop   r restart   q quit   debug http://127.0.0.1:%d",
+		"l start Le Chonk   s stop   r restart   p pause   q quit   debug http://127.0.0.1:%d",
 		m.debugPort,
 	)
 	divider := strings.Repeat("─", insideW)
@@ -163,10 +221,12 @@ func (m uiModel) frame() string {
 
 	content := make([]string, insideH)
 	content[0] = padRight(titleStyle.Render(title), insideW)
-	// Color by whether the game is genuinely up (harness-owned OR any external
-	// process with the mod API listening), down-but-self-exited (process died), or
-	// a clean stop.
-	if s.Running || m.gm.APIUp() {
+	// Color by whether the game is paused (admin toggle), genuinely up (harness-owned
+	// OR any external process with the mod API listening), down-but-self-exited
+	// (process died), or a clean stop.
+	if m.paused {
+		content[1] = padRight(statusPaused.Render(status), insideW)
+	} else if s.Running || m.gm.APIUp() {
 		content[1] = padRight(statusRun.Render(status), insideW)
 	} else if s.Exited {
 		content[1] = padRight(statusExited.Render(status), insideW)
@@ -199,7 +259,7 @@ func (m uiModel) frame() string {
 }
 
 // statusLine is the single status row shown under the title.
-func statusLine(s GameStatus, ms *modelState, gm *GameManager) string {
+func statusLine(s GameStatus, ms *modelState, gm *GameManager, paused bool) string {
 	var base string
 	if s.Running {
 		port := "pending"
@@ -213,6 +273,9 @@ func statusLine(s GameStatus, ms *modelState, gm *GameManager) string {
 		base = "game: EXITS (process died on its own — not a clean stop)"
 	} else {
 		base = "game: STOPPED"
+	}
+	if paused {
+		base += "   PAUSED"
 	}
 	lc := "idle"
 	if ms != nil && ms.Running() {
@@ -254,7 +317,7 @@ func (m uiModel) plainView() string {
 		lines = append(lines, m.lines[i])
 	}
 	lines = append(lines, "")
-	lines = append(lines, "keys:  l start Le Chonk · s stop · r restart · q quit   (auto-refreshes ~0.2s)")
+	lines = append(lines, "keys:  l start Le Chonk · s stop · r restart · p pause · q quit   (auto-refreshes ~0.2s)")
 	return strings.Join(lines, "\n")
 }
 
@@ -297,7 +360,7 @@ drain:
 					mm.addLine("Le Chonk is already running")
 				} else {
 					mm.ms.Start()
-					mm.addLine("starting Le Chonk… (l start · s stop · r restart · q quit)")
+					mm.addLine("starting Le Chonk… (l start · s stop · r restart · p pause · q quit)")
 				}
 			case "s":
 				if mm.ms.Running() {
@@ -307,14 +370,18 @@ drain:
 					mm.addLine("Le Chonk is not running")
 				}
 				mm.gc.StopCmd()
+				mm.paused = false
 			case "r":
 				mm.ms.Stop()
 				mm.gc.StopCmd()
+				mm.paused = false
 				time.Sleep(2 * time.Second)
 				mm.ms.Start()
 				mm.addLine("restarting Le Chonk…")
+			case "p":
+				mm.togglePause()
 			case "?":
-				mm.addLine("keys: l start Le Chonk · s stop · r restart · q quit · ? help")
+				mm.addLine("keys: l start Le Chonk · s stop · r restart · p pause · q quit · ? help")
 			}
 		}
 	}

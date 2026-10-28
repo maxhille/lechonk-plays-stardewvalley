@@ -19,15 +19,14 @@ public class CoroutineRunner
         _monitor = monitor;
     }
 
-    /// <summary>Called every SMAPI update tick. Advances the script if one is running.
-    /// Movement uses left-stick gamepad buttons; SMAPI clears synthetic presses each
-    /// tick, so skipping ticks would make held buttons stutter. This runs on the game
-    /// loop thread; <c>RunScriptBlocking</c> (on the HTTP thread) blocks on the
-    /// TaskCompletionSource that <c>Advance</c> completes when the coroutine dies.</summary>
+    /// <summary>Runs every SMAPI update tick on the game loop thread: drains queued
+    /// button taps, then advances the active script (if any). Movement uses
+    /// left-stick gamepad buttons; SMAPI clears synthetic presses each tick, so
+    /// skipping ticks would make held buttons stutter. <c>RunScriptBlocking</c>
+    /// (on the HTTP thread) blocks on the TaskCompletionSource that
+    /// <c>Advance</c> completes when the coroutine dies.</summary>
     public void OnTick(object? sender, UpdateTickedEventArgs e)
     {
-        if (!_controller.IsScriptActive())
-            return;
         _controller.Advance();
     }
 
