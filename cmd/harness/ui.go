@@ -260,6 +260,17 @@ func wrapText(s string, width int) []string {
 // renderHistory turns raw events into display lines for the active mode: a
 // divider between turns, word-wrapped text, bottom-anchored to rows. Returns
 // exactly rows entries (nil when rows <= 0).
+// hasLaterEvent reports whether any event follows the one at ev's position in
+// the slice (identity by index, since events repeat).
+func hasLaterEvent(events []thoughtEvent, ev thoughtEvent) bool {
+	for i := len(events) - 1; i >= 0; i-- {
+		if events[i] == ev {
+			return i < len(events)-1
+		}
+	}
+	return false
+}
+
 func renderHistory(events []thoughtEvent, mode string, width, rows int) []string {
 	if rows <= 0 {
 		return nil
@@ -269,6 +280,15 @@ func renderHistory(events []thoughtEvent, mode string, width, rows int) []string
 	lastTurn := 0
 	seenTurn := false
 	for _, ev := range events {
+		// The thinking indicator is ephemeral: show it only while it is the
+		// newest thing — once his words (or any later event) arrive, it goes.
+		if ev.Kind == evThinking {
+			if mode != modeStreamer || hasLaterEvent(events, ev) {
+				continue
+			}
+			all = append(all, transcriptStyle.Render("…"))
+			continue
+		}
 		lines := evLines(ev, mode)
 		if len(lines) == 0 {
 			continue

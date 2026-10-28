@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -102,6 +103,159 @@ type Usage struct {
 // Le Chonk's shared conversation prefix. Endpoints that don't know the
 // field (like the local server) ignore it.
 const promptCacheKey = "lechonk-plays-stardewvalley"
+
+// streamDeltaKind labels what a streaming delta carries.
+type streamDeltaKind string
+
+const (
+	deltaThink streamDeltaKind = "reasoning" // hidden reasoning_content
+	deltaSay   streamDeltaKind = "content"   // visible words
+	deltaTool  streamDeltaKind = "tool"      // a tool call starts
+)
+
+// ChatStream is one streaming completion (SSE). It accumulates the deltas
+// into the same shape Chat returns, reporting progress through onDelta as it
+// arrives — the kind says whether the fragment is hidden reasoning, visible
+// words, or the start of a tool call. Pass nil to ignore progress. The
+// response is returned when the stream ends.
+func (c *ModelClient) ChatStream(ctx context.Context, messages []ChatMessage, tools []Tool,
+	onDelta func(kind streamDeltaKind, text string)) (*ChatResponse, error) {
+
+	req := struct {
+		Model      string        `json:"model"`
+		Messages   []ChatMessage `json:"messages"`
+		Tools      []Tool        `json:"tools,omitempty"`
+		Stream     bool          `json:"stream"`
+		StreamOpts struct {
+			IncludeUsage bool `json:"include_usage"`
+		} `json:"stream_options"`
+		PromptCacheKey string `json:"prompt_cache_key,omitempty"`
+	}{
+		Model:          c.model,
+		Messages:       messages,
+		Tools:          tools,
+		Stream:         true,
+		PromptCacheKey: promptCacheKey,
+	}
+	req.StreamOpts.IncludeUsage = true // usage arrives in the final chunk
+
+	body, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("marshal request: %w", err)
+	}
+	h, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/chat/completions", bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	h.Header.Set("Content-Type", "application/json")
+	h.Header.Set("Accept", "text/event-stream")
+	if c.apiKey != "" {
+		h.Header.Set("Authorization", "Bearer "+c.apiKey)
+	}
+	resp, err := c.http.Do(h)
+	if err != nil {
+		return nil, fmt.Errorf("http: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		data, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+		return nil, fmt.Errorf("chat stream: http %d: %s", resp.StatusCode, strings.TrimSpace(string(data)))
+	}
+
+	var out ChatResponse
+	var msg *ChatMessage             // lazily-allocated accumulated reply
+	toolCalls := map[int]*ToolCall{} // delta index -> accumulated call
+	scan := bufio.NewScanner(resp.Body)
+	scan.Buffer(make([]byte, 0, 64*1024), 4<<20)
+	for scan.Scan() {
+		line := strings.TrimSpace(scan.Text())
+		if line == "" || strings.HasPrefix(line, ":") {
+			continue // keep-alive comment
+		}
+		if !strings.HasPrefix(line, "data:") {
+			continue
+		}
+		payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		if payload == "[DONE]" {
+			break
+		}
+		var chunk struct {
+			Choices []struct {
+				Delta struct {
+					Content   string `json:"content"`
+					Reasoning string `json:"reasoning_content"`
+					ToolCalls []struct {
+						Index    int    `json:"index"`
+						ID       string `json:"id"`
+						Function struct {
+							Name      string `json:"name"`
+							Arguments string `json:"arguments"`
+						} `json:"function"`
+					} `json:"tool_calls"`
+				} `json:"delta"`
+			} `json:"choices"`
+			Usage *Usage `json:"usage"`
+		}
+		if err := json.Unmarshal([]byte(payload), &chunk); err != nil {
+			continue // tolerate a malformed keep-alive chunk
+		}
+		if chunk.Usage != nil {
+			out.Usage = *chunk.Usage
+		}
+		if len(chunk.Choices) == 0 {
+			continue
+		}
+		d := chunk.Choices[0].Delta
+		if msg == nil {
+			msg = &ChatMessage{Role: "assistant"}
+		}
+		if d.Reasoning != "" {
+			msg.Reasoning += d.Reasoning
+			if onDelta != nil {
+				onDelta(deltaThink, d.Reasoning)
+			}
+		}
+		if d.Content != "" {
+			msg.Content += d.Content
+			if onDelta != nil {
+				onDelta(deltaSay, d.Content)
+			}
+		}
+		for _, tc := range d.ToolCalls {
+			acc := toolCalls[tc.Index]
+			if acc == nil {
+				// First fragment for this call carries the ID and name.
+				msg.ToolCalls = append(msg.ToolCalls, ToolCall{
+					ID:       tc.ID,
+					Type:     "function",
+					Function: ToolCallFunc{Name: tc.Function.Name},
+				})
+				toolCalls[tc.Index] = &msg.ToolCalls[len(msg.ToolCalls)-1]
+				acc = toolCalls[tc.Index]
+				if onDelta != nil && acc.Function.Name != "" {
+					onDelta(deltaTool, acc.Function.Name)
+				}
+			} else {
+				// A later fragment re-sending ID/name (some servers do): keep it.
+				if tc.ID != "" {
+					acc.ID = tc.ID
+				}
+				if tc.Function.Name != "" {
+					acc.Function.Name = tc.Function.Name
+				}
+			}
+			acc.Function.Arguments += tc.Function.Arguments
+		}
+	}
+	if err := scan.Err(); err != nil {
+		return nil, fmt.Errorf("read stream: %w", err)
+	}
+	if msg == nil {
+		return nil, fmt.Errorf("no choices in stream")
+	}
+	out.Choices = []Choice{{Message: *msg}}
+	return &out, nil
+}
 
 // Chat is one non-streaming completion.
 func (c *ModelClient) Chat(ctx context.Context, messages []ChatMessage, tools []Tool) (*ChatResponse, error) {

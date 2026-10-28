@@ -24,6 +24,7 @@ const (
 	evInfo                            // harness notice (launching, waiting…)
 	evSay                             // Le Chonk's visible words (streamer mode)
 	evThink                           // Le Chonk's hidden reasoning (log only)
+	evThinking                        // the model is generating (streaming live)
 	evTool                            // Le Chonk called a tool
 	evResult                          // a tool's result
 	evError                           // something went wrong
@@ -91,6 +92,8 @@ func kindLabel(k thoughtEventKind) string {
 		return "say"
 	case evThink:
 		return "think"
+	case evThinking:
+		return "thinking"
 	case evTool:
 		return "tool"
 	case evResult:
@@ -169,7 +172,7 @@ func (m *modelState) loop() {
 			return
 		}
 
-		resp, err := m.client.Chat(m.ctx, messages, m.tools())
+		resp, err := m.chatStreamed(messages, turn)
 		if err != nil {
 			m.emitText(evError, turn, "model call: "+err.Error())
 			messages = append(messages, ChatMessage{
@@ -227,6 +230,29 @@ func (m *modelState) loop() {
 		}
 	}
 	m.emitText(evStop, maxTurns, "run stopped (turn budget reached)")
+}
+
+// chatStreamed runs one streaming completion and emits live progress events:
+// evThinking("…") when the model starts generating (reasoning or words), so the
+// TUI can show a thinking indicator in the chat. The deltas themselves are
+// not forwarded — only the state change; his full words arrive as evSay when
+// the reply completes.
+func (m *modelState) chatStreamed(messages []ChatMessage, turn int) (*ChatResponse, error) {
+	var seenReasoning, seenSay bool
+	return m.client.ChatStream(m.ctx, messages, m.tools(), func(kind streamDeltaKind, text string) {
+		switch kind {
+		case deltaThink:
+			if !seenReasoning {
+				seenReasoning = true
+				m.emitText(evThinking, turn, "…")
+			}
+		case deltaSay:
+			if !seenSay {
+				seenSay = true
+				m.emitText(evThinking, turn, "…")
+			}
+		}
+	})
 }
 
 // seedMessages is the system prompt + the initial "start the game" user turn.

@@ -75,3 +75,28 @@ func TestMultiLineResultSpansLines(t *testing.T) {
 		}
 	}
 }
+
+// The thinking indicator: while the model is generating, the streamer view
+// shows "…"; once his message arrives, the indicator is gone.
+func TestThinkingIndicatorLifecycle(t *testing.T) {
+	pending := renderHistory([]thoughtEvent{
+		{Kind: evSay, Turn: 1, Text: "first message"},
+		{Kind: evThinking, Turn: 2, Text: "…"},
+	}, modeStreamer, 40, 10)
+	if !strings.Contains(stripAnsi(strings.Join(pending, "\n")), "…") {
+		t.Errorf("pending turn must show the thinking indicator:\n%s", stripAnsi(strings.Join(pending, "\n")))
+	}
+
+	arrived := renderHistory([]thoughtEvent{
+		{Kind: evSay, Turn: 1, Text: "first message"},
+		{Kind: evThinking, Turn: 2, Text: "…"},
+		{Kind: evSay, Turn: 2, Text: "second message"},
+	}, modeStreamer, 40, 10)
+	joined := stripAnsi(strings.Join(arrived, "\n"))
+	if strings.Contains(joined, "…") {
+		t.Errorf("indicator must disappear once his words arrive:\n%s", joined)
+	}
+	if !strings.Contains(joined, "second message") {
+		t.Errorf("his message must be shown:\n%s", joined)
+	}
+}
