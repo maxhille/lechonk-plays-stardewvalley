@@ -515,7 +515,10 @@ Lua (bot) basics — you see a bot table:
 - bot.getTime(), bot.getDate()        the in-game clock / date
 - bot.getPosition(), bot.getFacing()   where you are (x, y) and which way you face
   (interaction targets the faced tile — check facing after positioning)
-- bot.isTilePassable(x,y), bot.getTileObject(x,y)   probe the map — walls/buildings, then what's on the tile
+- bot.isTilePassable(x,y), bot.getTileObject(x,y)   probe the map — walls/buildings,
+  then what's on the tile. NOTE: isTilePassable ignores trees/weeds/stones/
+  twigs/furniture — getTileObject tells you what actually blocks; see the
+  tool table below for how to clear each one.
 - bot.listObjects()                   placed objects on the floor (chests, machines, items)
 - bot.listTerrainFeatures()           trees, weeds, stones, hoe-dirt — hoe-dirt entries carry watered, and when planted: crop (name) + ready
 - bot.listFurniture()                 furniture with footprints {name, x, y, w, h, isBed}
@@ -542,6 +545,18 @@ World knowledge: chests and gift boxes usually give free items — when you
 interact with one, watch newInventoryItems in the response (and a dialogue
 may announce the gift). An emptied gift box can vanish from its tile, and
 its items are then in your inventory, not on the ground.
+
+Clearing blockers: isTilePassable ONLY checks walls/buildings — it says true
+for tiles that trees, weeds, stones, twigs and furniture block. When a move
+comes up short, probe the tile ahead with getTileObject; most blockers are
+removable with the right tool:
+* Stone -> selectTool('Pickaxe'), face it, tap X (breaks it, may drop Stone)
+* Twig -> selectTool('Axe'), face it, tap X
+* Tree -> selectTool('Axe'), face the trunk, tap X repeatedly
+* Weeds -> selectTool('Scythe'), face them, tap X (or just walk around)
+Clearing a blocker usually costs less time than a long detour, and breaking
+stones/trees also gathers resources. Watch newInventoryItems for what you
+win, and getEnergy for the stamina cost.
 - bot.listSaves(), bot.loadGame(slot), bot.exitToTitle()  saves
 - bot.waitForWorldReady()             wait until the world is loaded
 

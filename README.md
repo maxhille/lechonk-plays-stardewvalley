@@ -213,7 +213,9 @@ Lua scripts see a `bot` table:
 - **Saves:** `bot.listSaves()`, `bot.loadGame(slotName)` (from the title screen,
   skips character creation), `bot.exitToTitle()`.
 - **State:** `bot.getPosition()`, `bot.getFacing()` (which way you face —
-  interaction targets the faced tile), `bot.isTilePassable(x, y)`, `bot.getTileObject(x, y)`,
+  interaction targets the faced tile), `bot.isTilePassable(x, y)` (walls/buildings
+  only — trees/weeds/stones/twigs/furniture also block; clear them with the right
+  tool: pickaxe stone, axe twigs/trees, scythe weeds), `bot.getTileObject(x, y)`,
   `bot.getEnergy()`, `bot.getInventory()`, `bot.getTime()`, `bot.getDate()`, `bot.wait(ticks)`.
 - **Location:** `bot.listObjects()` (placed objects, incl. ground debris
   Stone/Weeds/Twig), `bot.listTerrainFeatures()`
