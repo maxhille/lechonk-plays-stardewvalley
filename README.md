@@ -84,6 +84,17 @@ Endpoints, once the game is up:
 Mod reload = rebuild (1) → `systemctl --user restart lechonk` (or `r` in the
 TUI).
 
+Configuration (all optional — the defaults work out of the box):
+
+| Var | Purpose | Default |
+|---|---|---|
+| `LECHONK_BASE_URL` | model endpoint | `http://saturn:9933/v1` |
+| `LECHONK_MODEL` | model id | `Qwen3.8-27B` |
+| `LECHONK_API_KEY` | model key, if the endpoint needs one | unset |
+| `SV_SMAPI_LAUNCH_CMD` | how the game is launched | `steam-run ./StardewValley` |
+| `LECHONK_DEBUG_PORT` | debug endpoint port | `17643` |
+| `LECHONK_HEADLESS` | `1` = skip the TUI even with a TTY | off |
+
 ## Architecture
 
 Three processes, two network hops, three tools:
@@ -111,6 +122,21 @@ Three processes, two network hops, three tools:
 - **Agent (Le Chonk, the model):** writes one small script per goal (`plow a
   field`, `walk to town`), waits for the result, thinks again. Goals live in
   context for now; a resume checkpoint comes later.
+
+### The model loop
+
+Le Chonk's think→tool→observe cycle runs in its own goroutine and pushes
+thoughts, actions, and results over a channel to the TUI (and to
+`/tmp/lechonk-transcript.log`), so a long `run_script` never freezes the
+screen. Failed model calls and stuck scripts are fed back to him for
+re-planning; his hidden reasoning (`reasoning_content`) is shown as gold
+"thinking" lines; he ends a day with `DONE`. Three tools:
+
+| Tool | What it does |
+|---|---|
+| `launch_game()` | Starts the game as a child (if not already up) and returns once the mod API answers on `:17642`. Le Chonk then loads his own save and waits for the world via `run_script`. |
+| `run_script(lua)` | `POST /script`; blocks; returns `{result, error, ticksUsed, evt}`. |
+| `read_script_api()` | `GET /api` — the full bot schema. This is how Le Chonk reads his own manual. |
 
 ### Design decisions
 
@@ -186,26 +212,26 @@ Lua scripts see a `bot` table:
   synthetic input, save load/exit, wake-up, state queries, menu/dialogue
   navigation. Tested end to end, driven over the mod's HTTP API: load a save, wake, walk the farmer, open the
   TV channel menu.
-- [~] **Phase 2 — The brain.** Go/TUI harness. Built: OpenAI-compatible model
-  client (non-streaming, tool calls), the three tools (`run_script`,
-  `launch_game`, `read_script_api`), the think→tool→observe loop, live thought
-  transcript (TUI + `/tmp/lechonk-transcript.log`), the game as a child process
-  (kill the harness = kill the game), debug HTTP, headless mode. Remaining:
-  streaming, prompt-cache key, compaction, UTC header. Full plan:
-  **`PLAN-PHASE2.md`**. Target: the model walks the farmer by itself, unaided.
+- [x] **Phase 2 — The brain.** Go/TUI harness: OpenAI-compatible model client
+  (tool calls, non-streaming), the three tools, the think→tool→observe loop,
+  live thought transcript (TUI + `/tmp/lechonk-transcript.log`), the game as a
+  child process (kill the harness = kill the game), debug HTTP, headless mode.
+  Verified live: Le Chonk launches the game, finds and loads his save, and
+  plays — the model walks the farmer by itself, unaided.
 - [ ] **Phase 3 — The farmer.** Bot API surface grows (tools, inventory, dialogue,
-  beds, shops); recipes in `GET /api`; tune the model until a full in-game day plays
-  sensibly end to end.
+  beds, shops); recipes in `GET /api`; tune the model until a full in-game day
+  plays sensibly end to end. Also queued from Phase 2: streaming model output,
+  per-turn UTC header, prompt-cache key, compaction, top status bar, and the
+  flake `buildGoApplication` package.
 - [ ] **Phase 4 — The submission.** Clean repo, README/description, demo video
   (format TBD), post to Discord before 29 October.
 - [ ] **Later (post-contest).** Resume checkpoint (goals + structured context);
   script library + library tools; WebSocket transport for remote play; human override
   if it ever becomes "a game I play".
 
-## Layout (planned)
+## Layout
 
 ```
-PLAN-PHASE2.md  build-out plan for the harness (the brain)
 flake.nix  devShell (Go + .NET SDK); Go module at the repo root (cmd/harness)
 cmd/harness/  Go + Bubble Tea TUI + model loop (built) — owns the game as a child process
 mod/Lechonk  C# SMAPI mod: HTTP server, Lua sandbox, Bot API
