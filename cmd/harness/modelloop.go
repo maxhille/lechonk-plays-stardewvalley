@@ -490,7 +490,7 @@ Tools
   optional.
 - run_script(lua): runs a Lua script against the bot API, synchronously. It blocks
   until the script finishes (or hits the tick budget) and hands back:
-  {"result","error","ticksUsed","evt"}. A script can be up to 1024 characters
+  {"result","error","ticksUsed","newInventoryItems","evt"}. A script can be up to 1024 characters
   long — use the budget.
     * evt "completed": the script did what it asked.
     * evt "menuopened": a menu or dialogue appeared while the script ran, so it
@@ -500,6 +500,10 @@ Tools
       Re-plan: check state, take a smaller step, or move. Do not just retry.
     * evt "cancelled": the connection closed.
     * error non-empty: the script failed. Read the error, fix it, try again.
+    * newInventoryItems: items that entered your inventory during the script
+      (null when nothing changed) — read it; it tells you what you just picked
+      up or received, so you never need to re-check getInventory after an
+      interaction.
 
 Lua (bot) basics — you see a bot table:
 - bot.moveUp(ticks), bot.moveRight(ticks), bot.moveDown(ticks), bot.moveLeft(ticks)
@@ -533,6 +537,11 @@ its result — you never need to wait or re-check after opening something. When
 a menu is already open, your next script drives it: clickMenuButton by index,
 LT/RT to switch GameMenu tabs, and remember tapping A clicks inside the open
 menu (at the cursor), not at the faced tile. Close any menu with tap('B').
+
+World knowledge: chests and gift boxes usually give free items — when you
+interact with one, watch newInventoryItems in the response (and a dialogue
+may announce the gift). An emptied gift box can vanish from its tile, and
+its items are then in your inventory, not on the ground.
 - bot.listSaves(), bot.loadGame(slot), bot.exitToTitle()  saves
 - bot.waitForWorldReady()             wait until the world is loaded
 

@@ -31,6 +31,11 @@ public class ScriptController
     private bool _menuOpenAtStart;
     private string _menuTypeAtStart = "";
 
+    // Inventory diff: what the player held when the script started. When it
+    // finishes, new items are attached to the response — the agent sees what
+    // a script gained without remembering to re-check getInventory.
+    private List<Item>? _inventoryAtStart;
+
     private static readonly object Gate = new();
 
     // Admin pause (POST /pause): while true, Advance() never resumes the
@@ -105,6 +110,7 @@ public class ScriptController
             _coro = null;
             _menuOpenAtStart = Game1.activeClickableMenu != null || Game1.emoteMenu != null;
             _menuTypeAtStart = Game1.activeClickableMenu?.GetType().Name ?? "";
+            _inventoryAtStart = _botApi.SnapshotInventory();
 
             var script = new MoonSharp.Interpreter.Script();
             var botTable = new MoonSharp.Interpreter.Table(script);
@@ -272,7 +278,8 @@ public class ScriptController
                 Result = null,
                 Error = null,
                 TicksUsed = _ticksUsed,
-                Event = ScriptEvent.Completed
+                Event = ScriptEvent.Completed,
+                NewInventoryItems = _botApi.InventoryDiff(_inventoryAtStart)
             };
             _coro = null;
             _tcs?.TrySetResult(resp);
@@ -292,7 +299,8 @@ public class ScriptController
                 Result = null,
                 Error = $"stuck: tick budget exceeded ({_ticksUsed}/{_tickBudget})",
                 TicksUsed = _ticksUsed,
-                Event = ScriptEvent.Stuck
+                Event = ScriptEvent.Stuck,
+                NewInventoryItems = _botApi.InventoryDiff(_inventoryAtStart)
             };
             _tcs?.TrySetResult(resp);
             _tcs = null;
@@ -314,7 +322,8 @@ public class ScriptController
                 Result = null,
                 Error = ErrWithLine(ex),
                 TicksUsed = _ticksUsed,
-                Event = ScriptEvent.Cancelled
+                Event = ScriptEvent.Cancelled,
+                NewInventoryItems = _botApi.InventoryDiff(_inventoryAtStart)
             };
             _tcs?.TrySetResult(resp);
             _tcs = null;
@@ -337,7 +346,8 @@ public class ScriptController
                 Result = _botApi.MenuSnapshot(),
                 Error = null,
                 TicksUsed = _ticksUsed,
-                Event = ScriptEvent.MenuOpened
+                Event = ScriptEvent.MenuOpened,
+                NewInventoryItems = _botApi.InventoryDiff(_inventoryAtStart)
             };
             _tcs?.TrySetResult(menuResp);
             _tcs = null;
@@ -354,7 +364,8 @@ public class ScriptController
                 Result = Sanitize(result.ToObject()),
                 Error = null,
                 TicksUsed = _ticksUsed,
-                Event = ScriptEvent.Completed
+                Event = ScriptEvent.Completed,
+                NewInventoryItems = _botApi.InventoryDiff(_inventoryAtStart)
             };
             _coro = null;
             _tcs?.TrySetResult(resp);
@@ -418,6 +429,10 @@ public class ScriptResponse
     public int TicksUsed { get; set; }
     public ScriptEvent Event { get; set; } = ScriptEvent.Completed;
     public string EventName => Event.ToString().ToLower();
+    /// <summary>Items that entered the player's inventory while the script ran
+    /// (name + count), or null when nothing changed. Always present in the HTTP
+    /// bundle — it is the "what did I just get" signal.</summary>
+    public object? NewInventoryItems { get; set; }
 }
 
 /// <summary>Result of an admin pause toggle.</summary>

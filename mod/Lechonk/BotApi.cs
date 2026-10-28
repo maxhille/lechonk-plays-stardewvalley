@@ -316,6 +316,38 @@ public class BotApi
         return items.ToArray();
     }
 
+    /// <summary>Take a reference snapshot of the player's inventory, for
+    /// <see cref="InventoryDiff"/>. Held items are compared by item id and
+    /// stack count.</summary>
+    public List<Item> SnapshotInventory()
+    {
+        return Game1.player.Items.Where(i => i != null && i.Name != "").ToList();
+    }
+
+    /// <summary>Items that entered (or grew in) the player's inventory since
+    /// <paramref name="before"/>: [{name, count}] of the new/gained amount, or
+    /// null when nothing changed. Attached to every script response so the
+    /// agent sees what a script gained without re-checking getInventory.</summary>
+    public object? InventoryDiff(List<Item>? before)
+    {
+        var now = SnapshotInventory();
+        if (before == null) return null;
+
+        var beforeCounts = new Dictionary<string, int>();
+        foreach (var item in before)
+            beforeCounts[item.ItemId] = beforeCounts.GetValueOrDefault(item.ItemId) + item.Stack;
+
+        var gained = new List<object>();
+        foreach (var group in now.GroupBy(i => i.ItemId))
+        {
+            var have = group.Sum(i => i.Stack);
+            var had = beforeCounts.GetValueOrDefault(group.Key);
+            if (have > had)
+                gained.Add(new Dictionary<string, object?> { ["name"] = group.First().DisplayName, ["count"] = have - had });
+        }
+        return gained.Count > 0 ? gained.ToArray() : null;
+    }
+
     /// <summary>Return the current in-game time as {hour, minute}.</summary>
     /// <remarks>Game1.timeOfDay is minutes since midnight; the clock runs
     /// 06:00 (360) to 26:00 (1560), so early morning hours can be 24 or 25.</remarks>

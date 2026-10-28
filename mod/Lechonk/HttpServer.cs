@@ -234,6 +234,7 @@ public class HttpServer
                 result = result.Result,
                 error = result.Error,
                 ticksUsed = result.TicksUsed,
+                newInventoryItems = result.NewInventoryItems,
                 evt = result.EventName
             }, new JsonSerializerOptions { WriteIndented = true });
         }
