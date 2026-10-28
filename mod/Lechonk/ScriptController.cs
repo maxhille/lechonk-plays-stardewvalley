@@ -23,6 +23,14 @@ public class ScriptController
     private int _ticksUsed;
     private int _tickBudget;
 
+    // Menu interrupt: the menu state when the script started. A menu/dialogue
+    // that APPEARS while the script runs ends it immediately with
+    // evt "menuopened" + a full snapshot, so the agent sees the screen it
+    // caused without a follow-up probe. A menu already open at start (the
+    // navigation path) does not interrupt — the script drives it.
+    private bool _menuOpenAtStart;
+    private string _menuTypeAtStart = "";
+
     private static readonly object Gate = new();
 
     // Admin pause (POST /pause): while true, Advance() never resumes the
@@ -95,6 +103,8 @@ public class ScriptController
             _ticksUsed = 0;
             _tickBudget = tickBudget;
             _coro = null;
+            _menuOpenAtStart = Game1.activeClickableMenu != null || Game1.emoteMenu != null;
+            _menuTypeAtStart = Game1.activeClickableMenu?.GetType().Name ?? "";
 
             var script = new MoonSharp.Interpreter.Script();
             var botTable = new MoonSharp.Interpreter.Table(script);
@@ -119,7 +129,6 @@ public class ScriptController
             botTable["loadGame"] = (Func<object?, object?>)(slotName => _botApi.LoadGame(slotName));
             botTable["exitToTitle"] = (Func<object?, object?>)(_ => _botApi.ExitToTitle());
             botTable["waitForWorldReadyTick"] = (Func<object?, object?>)(_ => _botApi.WaitForWorldReady());
-            botTable["waitForMenuTick"] = (Func<object?, object?>)(_ => _botApi.WaitForMenuTick());
             botTable["listFurniture"] = (Func<object?>)(() => _botApi.ListFurniture());
             botTable["getMenuType"] = (Func<object?>)(() => _botApi.GetMenuType());
             botTable["getMenuButtons"] = (Func<object?>)(() => _botApi.GetMenuButtons());
@@ -171,18 +180,6 @@ public class ScriptController
                         if ret ~= Y then return ret end
                         coroutine.yield()
                     end
-                end
-
-                -- Menus open asynchronously (chest lids animate ~1s), so after
-                -- tapping A, wait for the menu instead of checking once.
-                function bot.waitForMenu(timeout)
-                    timeout = timeout or 120
-                    for i = 1, timeout do
-                        local m = bot.waitForMenuTick()
-                        if m ~= Y then return m end
-                        coroutine.yield()
-                    end
-                    return nil
                 end
             ";
             script.DoString(prelude);
@@ -325,6 +322,29 @@ public class ScriptController
             return;
         }
 
+        // Menu interrupt: a menu/dialogue that appeared while the script ran
+        // ends the script here — the snapshot is its result, so the agent sees
+        // the screen it caused without a follow-up probe. Only menus that OPEN
+        // during the run interrupt; one already open at start is the navigation
+        // path and is left alone. Checked when the coroutine has suspended (a
+        // yielded script can observe the menu on the very tick it opened).
+        if (!_menuOpenAtStart && _botApi.MenuIsOpen())
+        {
+            _coro = null;
+            var menuResp = new ScriptResponse
+            {
+                Prints = "",
+                Result = _botApi.MenuSnapshot(),
+                Error = null,
+                TicksUsed = _ticksUsed,
+                Event = ScriptEvent.MenuOpened
+            };
+            _tcs?.TrySetResult(menuResp);
+            _tcs = null;
+            lock (Gate) { }
+            return;
+        }
+
         // Only a Dead coroutine is finished.
         if (_coro.State == MoonSharp.Interpreter.CoroutineState.Dead)
         {
@@ -385,7 +405,7 @@ public enum ScriptEvent
 {
     Completed,
     Stuck,
-    DialogInterrupted,
+    MenuOpened,
     Cancelled
 }
 

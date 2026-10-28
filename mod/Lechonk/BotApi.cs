@@ -405,16 +405,6 @@ public class BotApi
         };
     }
 
-    /// <summary>Tick probe for <c>bot.waitForMenu</c>: returns the menu info
-    /// once one is open, or the yield marker to keep waiting.</summary>
-    public object? WaitForMenuTick()
-    {
-        var menu = GetMenuType();
-        if (menu != null)
-            return menu;
-        return Yield;
-    }
-
     /// <summary>Get info about the currently active menu, or null.</summary>
     public object? GetMenuType()
     {
@@ -430,12 +420,21 @@ public class BotApi
 
         // Return a Dictionary, not an anonymous object: MoonSharp cannot
         // convert anonymous CLR types into Lua values.
-        return new Dictionary<string, object?>
+        var info = new Dictionary<string, object?>
         {
             ["type"] = menu.GetType().Name,
-            ["buttonCount"] = menu is IClickableMenu cm ? cm.getComponentWithID(0) != null ? 1 : 0 : 0,
             ["text"] = menu is DialogueBox db ? db.getCurrentString() : null
         };
+
+        // The tabbed GameMenu (Start button): name the active tab and list them
+        // all — LT/RT cycle tabs, B closes the menu.
+        if (menu is StardewValley.Menus.GameMenu gm)
+        {
+            info["tab"] = gm.tabs[gm.currentTab].name;
+            info["tabIndex"] = gm.currentTab;
+            info["tabs"] = gm.tabs.Select(t => t.name).ToArray();
+        }
+        return info;
     }
 
     /// <summary>Get button info for the active menu (if it has clickable components).
@@ -445,6 +444,7 @@ public class BotApi
     {
         var menu = Game1.activeClickableMenu;
         if (menu == null) return null;
+        var slotItems = BuildSlotItemMap(menu);
 
         // Extract dialogue response labels so the agent can read what each option says.
         string[] responseText = null;
@@ -462,11 +462,40 @@ public class BotApi
             }
         }
 
-        var result = new List<object>();
-        for (int i = 0; i < 32; i++)
+        // Enumerate the menu's real component list. The GameMenu (Start button) is
+        // a shell: its clickable components live on the active page, so look there
+        // — its own list is only the tab bar (IDs 12340+). changeTab() re-populates
+        // the page's list on every tab switch, so this stays current.
+        List<StardewValley.Menus.ClickableComponent>? comps = null;
+        if (menu is StardewValley.Menus.GameMenu gm)
         {
-            var comp = menu.getComponentWithID(i);
-            if (comp == null) break; // IDs are sequential, stop at first missing
+            comps = gm.pages.Count > 0 && gm.currentTab < gm.pages.Count
+                ? gm.pages[gm.currentTab].allClickableComponents?.ToList()
+                : null;
+        }
+        else if (menu is StardewValley.Menus.IClickableMenu cm)
+        {
+            comps = cm.allClickableComponents?.ToList();
+        }
+        if (comps == null || comps.Count == 0)
+        {
+            // Old path for menus without a populated component list: probe the
+            // low sequential IDs.
+            comps = new List<StardewValley.Menus.ClickableComponent>();
+            for (int i = 0; i < 32; i++)
+            {
+                var c = menu.getComponentWithID(i);
+                if (c == null) break;
+                comps.Add(c);
+            }
+        }
+
+        var result = new List<object>();
+        var seen = new HashSet<int>();
+        for (int i = 0; i < comps.Count; i++)
+        {
+            var comp = comps[i];
+            if (comp == null || !seen.Add(comp.myID)) continue;
 
             var bounds = new Dictionary<string, object?>
             {
@@ -485,7 +514,7 @@ public class BotApi
                 label = responseText[i];
             }
 
-            result.Add(new Dictionary<string, object?>
+            var entry = new Dictionary<string, object?>
             {
                 ["index"] = i,
                 ["type"] = comp.GetType().Name,
@@ -493,7 +522,19 @@ public class BotApi
                 ["visible"] = comp.visible,
                 ["myID"] = comp.myID,
                 ["bounds"] = bounds
-            });
+            };
+
+            // Inventory slots: label the component with the item it holds so the
+            // inventory screen is readable — a bare "0".."35" slot ID is noise.
+            if (slotItems.TryGetValue(comp, out var slot))
+            {
+                entry["item"] = slot.Item != null
+                    ? $"{slot.Item.DisplayName} x{slot.Item.Stack}"
+                    : "(empty)";
+                entry["whose"] = slot.Whose;
+            }
+
+            result.Add(entry);
         }
 
         if (responseText != null)
@@ -505,6 +546,63 @@ public class BotApi
         }
 
         return result.ToArray();
+    }
+
+    /// <summary>Map each inventory-slot component to the item it holds, by reference.
+    /// Menus can hold two grids with colliding slot IDs (ItemGrabMenu: your inventory
+    /// + the chest's contents), so IDs alone can't identify the item — the component
+    /// itself can. The player inventory and the grabbed menu (chest) are both
+    /// labelled; the inventory grid shows what you hold, the grab menu what the
+    /// container holds.</summary>
+    private static Dictionary<StardewValley.Menus.ClickableComponent, (Item? Item, string Whose)> BuildSlotItemMap(
+        StardewValley.Menus.IClickableMenu menu)
+    {
+        var map = new Dictionary<StardewValley.Menus.ClickableComponent, (Item? Item, string Whose)>();
+        foreach (var (inv, whose) in EnumerateInventoryMenus(menu))
+        {
+            if (inv.inventory == null || inv.actualInventory == null) continue;
+            for (int i = 0; i < inv.inventory.Count && i < inv.actualInventory.Count; i++)
+                map[inv.inventory[i]] = (inv.actualInventory[i], whose);
+        }
+        return map;
+    }
+
+    /// <summary>Every InventoryMenu in this menu, tagged with whose items it shows.
+    /// MenuWithInventory.inventory is the player's bag; ItemGrabMenu.ItemsToGrabMenu
+    /// is the opened container's contents.</summary>
+    private static IEnumerable<(StardewValley.Menus.InventoryMenu inv, string whose)>
+        EnumerateInventoryMenus(StardewValley.Menus.IClickableMenu menu)
+    {
+        if (menu is StardewValley.Menus.MenuWithInventory mwi && mwi.inventory != null)
+            yield return (mwi.inventory, "player");
+        if (menu is StardewValley.Menus.ItemGrabMenu igm && igm.ItemsToGrabMenu != null)
+            yield return (igm.ItemsToGrabMenu, "container");
+    }
+
+    /// <summary>Is a menu, dialogue or the emote wheel open? Loading and title
+    /// screens do not count — those are the save-load path (loadGame waits for
+    /// the world through them), not an interactive menu.</summary>
+    public bool MenuIsOpen()
+    {
+        var menu = Game1.activeClickableMenu;
+        if (menu == null)
+            return Game1.emoteMenu != null;
+        return menu is not TitleMenu;
+    }
+
+    /// <summary>A readable snapshot of the currently open menu: type, text, tab
+    /// info (GameMenu), and every clickable button/slot with its label and item.
+    /// Returned when a script ends because a menu opened, so the agent sees the
+    /// screen it just caused, without a follow-up probe.</summary>
+    public object? MenuSnapshot()
+    {
+        var t = GetMenuType();
+        var b = GetMenuButtons();
+        return new Dictionary<string, object?>
+        {
+            ["menu"] = t,
+            ["buttons"] = b,
+        };
     }
 
     /// <summary>Extract the display text of a DialogueBox response.
@@ -628,9 +726,8 @@ public class BotApi
                 new { name = "bot.getFacing()", description = "Direction the player faces: \"up\", \"right\", \"down\" or \"left\". Interaction targets the faced tile — check it after positioning." },
                 new { name = "bot.getFacing()", description = "Direction the player faces: \"up\", \"right\", \"down\" or \"left\". Interaction targets the faced tile — check it after positioning." },
                 new { name = "bot.getDate()", description = "Return {season, day}." },
-                new { name = "bot.getMenuType()", description = "Info about the active menu or the emote wheel (type \"EmoteMenu\"), or null. Menus open asynchronously: after tapping A on an object, poll with bot.waitForMenu() instead of checking once." },
-                new { name = "bot.waitForMenu(timeout)", description = "Yield until a menu opens, then return its info (same shape as getMenuType). Timeout in ticks (default 120); returns null if no menu appeared. Use after tapping A — chest lids animate ~1s before the menu opens." },
-                new { name = "bot.getMenuButtons()", description = "Button info for the active menu." },
+                new { name = "bot.getMenuType()", description = "Info about the active menu or the emote wheel (type \"EmoteMenu\"), or null. GameMenu (Start) info names the active tab and lists all tabs (LT/RT switch them, B closes)." },
+                new { name = "bot.getMenuButtons()", description = "All clickable buttons/slots of the open menu, with label, myID, bounds, and — for inventory slots — the item they hold and whose grid it is (player bag vs container contents)." },
                 new { name = "bot.clickMenuButton(index)", description = "Click button at index on the active menu." },
                 new { name = "bot.advanceDialogue()", description = "Advance the current dialogue." },
                 new { name = "bot.selectDialogueOption(index)", description = "Select a dialogue option by index." },

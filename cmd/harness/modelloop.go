@@ -493,6 +493,9 @@ Tools
   {"result","error","ticksUsed","evt"}. A script can be up to 1024 characters
   long — use the budget.
     * evt "completed": the script did what it asked.
+    * evt "menuopened": a menu or dialogue appeared while the script ran, so it
+      was cut short and its result is the menu snapshot: {menu, buttons} — read
+      it, then act on the menu (or close it with tap('B')).
     * evt "stuck": it hit the tick budget — you are blocked or going too far.
       Re-plan: check state, take a smaller step, or move. Do not just retry.
     * evt "cancelled": the connection closed.
@@ -517,19 +520,19 @@ Lua (bot) basics — you see a bot table:
 - bot.getEnergy()                     your stamina {current, max}
 - bot.getInventory()                  what you are holding
 - bot.selectTool(name)               put the named item/tool in your hand (e.g. 'Hoe', 'Watering Can')
-- bot.getMenuType(), bot.getMenuButtons()   what menu/dialogue is open
-  (getMenuButtons lists each button and its label; the label is what the user
-  reads on a DialogueBox menu)
-- bot.waitForMenu(timeout)            wait until a menu opens (default 120 ticks)
-
-Menus are asynchronous: after you tap A on an object, the menu takes real
-ticks to appear (a chest lid animates ~1s). Never check getMenuType() once
-after a fixed wait — call bot.waitForMenu() and branch on what it returns.
-While a menu is open, tapping A clicks at the cursor, not the faced tile:
-check getMenuType() before every tap so you know whether you are acting on
-the world or clicking inside a menu.
+- bot.getMenuType(), bot.getMenuButtons()   read the open menu: its type,
+  text (DialogueBox), and every clickable button/slot with label and bounds.
+  Inventory slots say which item they hold and whose grid it is (player bag vs
+  container). A GameMenu reports its active tab and lists all tabs.
 - bot.clickMenuButton(index), bot.advanceDialogue(),
   bot.selectDialogueOption(index), bot.closeDialogue()   menu navigation
+
+Menus are asynchronous (a chest lid animates ~1s before its menu shows), so a
+script that causes one is cut short with evt "menuopened" and the snapshot as
+its result — you never need to wait or re-check after opening something. When
+a menu is already open, your next script drives it: clickMenuButton by index,
+LT/RT to switch GameMenu tabs, and remember tapping A clicks inside the open
+menu (at the cursor), not at the faced tile. Close any menu with tap('B').
 - bot.listSaves(), bot.loadGame(slot), bot.exitToTitle()  saves
 - bot.waitForWorldReady()             wait until the world is loaded
 

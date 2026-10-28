@@ -155,8 +155,9 @@ re-planning; his hidden reasoning (`reasoning_content`) is shown as gold
   each game tick — the game loop resumes it — but the caller never polls.
 - **Tick budget is the only safety fence.** Every script has a hard tick cap; a stuck
   script returns `{ error: "stuck: tick budget exceeded…", evt: "stuck" }`, the
-  agent re-plans. Connection close cancels the active script (the TCP connection
-  is the run's lifetime handle).
+  agent re-plans. A script that causes a menu/dialogue to open returns early with
+  `evt: "menuopened"` + the menu snapshot as its result. Connection close cancels
+  the active script (the TCP connection is the run's lifetime handle).
 - **Sandbox with no OS access.** MoonSharp runs stripped of `io`/`os`; scripts can only
   call the exposed Bot API. The API whitelist *is* the security boundary.
 - **Prompt cache discipline.** Every request carries a constant
@@ -217,13 +218,16 @@ Lua scripts see a `bot` table:
   (trees, grass, bushes, hoe-dirt — with `watered`/`crop`/`ready` for planted dirt),
   `bot.listFurniture()`, `bot.getWarps()` (doors/exits), `bot.listNpcs()`,
   `bot.listAnimals()`.
-- **Menus/dialogue:** `bot.getMenuType()` (type, buttonCount, **text** — the
-  narrative dialogue text), `bot.waitForMenu(timeout)` (block until a menu
-  opens — menus appear asynchronously, e.g. chest lids animate ~1s before the
-  menu shows), `bot.getMenuButtons()` (component index/type/
-  label/visible/bounds — **label** is the response text for `DialogueBox`
-  menus), `bot.clickMenuButton(index)`, `bot.advanceDialogue()`,
+- **Menus/dialogue:** `bot.getMenuType()` (type, **text** for `DialogueBox`,
+  the active tab + all tabs for `GameMenu`), `bot.getMenuButtons()` (every
+  clickable button/slot: index/type/label/visible/bounds, and for inventory
+  slots the item they hold + whose grid it is — player bag vs container),
+  `bot.clickMenuButton(index)`, `bot.advanceDialogue()`,
   `bot.selectDialogueOption(index)`, `bot.closeDialogue()`.
+  A menu/dialogue that opens *while a script runs* ends the script instantly:
+  `evt: "menuopened"` with a full snapshot `{menu, buttons}` as the result —
+  menus are asynchronous (chest lids animate ~1s), so the script that caused
+  one hands the screen back instead of polling.
 - **Debug:** `bot.print(msg)`.
 
 ## Roadmap
