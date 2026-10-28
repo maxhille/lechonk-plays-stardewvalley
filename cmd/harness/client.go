@@ -48,11 +48,99 @@ func envOr(k, def string) string {
 // For the "tool" role, Content carries the result; ToolCallID matches the call.
 // For the assistant role, ToolCalls (if any) is the list of tools it asked for.
 type ChatMessage struct {
-	Role       string     `json:"role"`
-	Content    string     `json:"content,omitempty"`
-	Reasoning  string     `json:"reasoning_content,omitempty"`
-	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
-	ToolCallID string     `json:"tool_call_id,omitempty"`
+	Role       string
+	Content    string
+	Reasoning  string // responses only — NEVER serialised into requests (Mistral 422s)
+	ToolCalls  []ToolCall
+	ToolCallID string
+}
+
+// MarshalJSON serialises a message for a REQUEST: reasoning is stripped —
+// Mistral rejects reasoning_content in request history (HTTP 422,
+// extra_forbidden) even though it streams it in responses. UnmarshalJSON
+// (the other direction) still decodes reasoning from replies.
+func (m ChatMessage) MarshalJSON() ([]byte, error) {
+	out := struct {
+		Role       string     `json:"role"`
+		Content    string     `json:"content,omitempty"`
+		ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
+		ToolCallID string     `json:"tool_call_id,omitempty"`
+	}{
+		Role:       m.Role,
+		Content:    m.Content,
+		ToolCalls:  m.ToolCalls,
+		ToolCallID: m.ToolCallID,
+	}
+	return json.Marshal(out)
+}
+
+// contentChunk is one typed piece of a content array. Mistral's reasoning
+// models stream content as
+// [{"type":"thinking","thinking":[{"text":…}]},{"type":"text","text":…}]
+// rather than a plain string — both shapes must decode.
+type contentChunk struct {
+	Type     string `json:"type"`
+	Text     string `json:"text"`
+	Thinking []struct {
+		Text string `json:"text"`
+	} `json:"thinking"`
+}
+
+// decodeContent accepts content as a plain string or an array of typed
+// chunks, and returns the visible text plus any thinking text.
+func decodeContent(raw json.RawMessage) (text, thinking string) {
+	raw = bytes.TrimSpace(raw)
+	if len(raw) == 0 || bytes.Equal(raw, []byte("null")) {
+		return "", ""
+	}
+	if raw[0] == '"' {
+		var s string
+		if err := json.Unmarshal(raw, &s); err == nil {
+			return s, ""
+		}
+		return "", ""
+	}
+	var chunks []contentChunk
+	if err := json.Unmarshal(raw, &chunks); err != nil {
+		return "", ""
+	}
+	for _, c := range chunks {
+		switch c.Type {
+		case "text":
+			text += c.Text
+		case "thinking":
+			for _, t := range c.Thinking {
+				thinking += t.Text
+			}
+		}
+	}
+	return text, thinking
+}
+
+// UnmarshalJSON decodes a reply message whose content may be a string or an
+// array of typed chunks (thinking + text). Marshalling is untouched: requests
+// always send content as a plain string.
+func (m *ChatMessage) UnmarshalJSON(data []byte) error {
+	var aux struct {
+		Role       string          `json:"role"`
+		Content    json.RawMessage `json:"content"`
+		Reasoning  string          `json:"reasoning_content"`
+		ToolCalls  []ToolCall      `json:"tool_calls"`
+		ToolCallID string          `json:"tool_call_id"`
+	}
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	m.Role = aux.Role
+	m.Reasoning = aux.Reasoning
+	m.ToolCalls = aux.ToolCalls
+	m.ToolCallID = aux.ToolCallID
+	text, thinking := decodeContent(aux.Content)
+	m.Content = text
+	if thinking != "" {
+		m.Reasoning = thinking
+	}
+	return nil
 }
 
 // ToolCall is a tool the assistant asked to run (in a reply) or echoed back
@@ -182,8 +270,8 @@ func (c *ModelClient) ChatStream(ctx context.Context, messages []ChatMessage, to
 		var chunk struct {
 			Choices []struct {
 				Delta struct {
-					Content   string `json:"content"`
-					Reasoning string `json:"reasoning_content"`
+					Content   json.RawMessage `json:"content"`
+					Reasoning string          `json:"reasoning_content"`
 					ToolCalls []struct {
 						Index    int    `json:"index"`
 						ID       string `json:"id"`
@@ -215,10 +303,19 @@ func (c *ModelClient) ChatStream(ctx context.Context, messages []ChatMessage, to
 				onDelta(deltaThink, d.Reasoning)
 			}
 		}
-		if d.Content != "" {
-			msg.Content += d.Content
+		// Content arrives either as a plain string or as typed chunks
+		// (thinking + text) — Mistral's reasoning models use the array form.
+		text, thinking := decodeContent(d.Content)
+		if thinking != "" {
+			msg.Reasoning += thinking
 			if onDelta != nil {
-				onDelta(deltaSay, d.Content)
+				onDelta(deltaThink, thinking)
+			}
+		}
+		if text != "" {
+			msg.Content += text
+			if onDelta != nil {
+				onDelta(deltaSay, text)
 			}
 		}
 		for _, tc := range d.ToolCalls {

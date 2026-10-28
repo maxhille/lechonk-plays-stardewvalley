@@ -166,6 +166,11 @@ func (m *modelState) loop() {
 	}()
 	messages := m.seedMessages()
 	const maxTurns = 1000
+	// Dead-stream guard: turns since his last chat message. Prompt nudges
+	// decay (a focused model goes quiet for dozens of turns), so the harness
+	// measures and reminds. Reset on every say, and after each reminder.
+	turnsSinceSay := 0
+	const silentTurns = 2
 	for turn := 0; turn < maxTurns; turn++ {
 		if m.ctx.Err() != nil {
 			m.emitText(evStop, turn, "run cancelled")
@@ -199,6 +204,9 @@ func (m *modelState) loop() {
 		reasoning := strings.TrimSpace(msg.Reasoning)
 		if visible != "" {
 			m.emitText(evSay, turn, visible)
+			turnsSinceSay = 0
+		} else {
+			turnsSinceSay++
 		}
 		if reasoning != "" {
 			m.emitText(evThink, turn, "  (thinking) "+truncateDisplay(reasoning, 500))
@@ -217,6 +225,16 @@ func (m *modelState) loop() {
 			continue
 		}
 
+		// Dead-stream guard: when he hasn't chatted for a few turns, remind
+		// him the audience exists — the chat must not go silent while he works.
+		// NOTE: appended AFTER the tool results (end of turn) — a user message
+		// between an assistant tool-call and its tool result breaks Mistral's
+		// message-order validation ("Unexpected role 'tool' after role 'user'").
+		reminder := turnsSinceSay >= silentTurns
+		if reminder {
+			turnsSinceSay = 0
+		}
+
 		// Dispatch each tool call and feed the results back for the next turn.
 		for _, tc := range msg.ToolCalls {
 			m.emitText(evTool, turn, "→ "+tc.Function.Name+"("+tc.Function.Arguments+")")
@@ -226,6 +244,15 @@ func (m *modelState) loop() {
 				Role:       "tool",
 				ToolCallID: tc.ID,
 				Content:    truncateModel(result, 8000),
+			})
+		}
+
+		// The dead-stream reminder lands here — after the tool results, keeping
+		// the assistant → tool(s) → user order the API requires.
+		if reminder {
+			messages = append(messages, ChatMessage{
+				Role:    "user",
+				Content: "(The stream chat has been silent for several turns — your audience is waiting. Send a short chat message: what you're doing and how it's going, in your streamer voice. No coordinates, keep it hype.)",
 			})
 		}
 	}
@@ -523,12 +550,11 @@ are stream chat, not technical logs:
   wrong, the message can be "ok that didn't work 😭 let's try something else"
   — the technical analysis happens silently.
 
-A real streamer narrates WHILE playing — they never go silent for long. Every
-few turns (at least every 2-3), send a chat message for the audience alongside
-your tool call: what you're up to in plain hype words ("ok chat we're heading
-OUTSIDE 🚪", "found the seeds let's GO 🌱"). Working silently for many turns
-in a row is a dead stream — even mid-plan, one line about how it's going beats
-silence.
+A real streamer narrates WHILE playing — they never shut up. EVERY turn,
+send a chat message for the audience alongside your tool call: one line in
+plain hype words about what you're up to ("ok chat we're heading OUTSIDE 🚪",
+"found the seeds let's GO 🌱"). A turn without a chat message is a dead
+stream — never let the chat go quiet.
 
 Prefer acting. Chat without acting is just vibes; if you only chat and never
 act, the harness will keep nudging you to act.
@@ -629,6 +655,14 @@ variables, for-loops, if/else). E.g. one script can move in a burst, re-check
 bot.getPosition(), then act — instead of one call per turn. Still keep each
 script bounded so it cannot overshoot or get stuck; observe first when the
 state is unknown (e.g. return bot.getPosition()).
+
+The day is SHORT: game time runs 06:00-26:00 and every turn you spend
+thinking, chatting or probing costs daylight. Budget your time like a busy
+farmer: think before you send a script, make each script do a whole step of
+the plan (move there AND act AND check the result), and avoid spending turns
+on tiny single-call scripts when one planned script would finish the job.
+Sleeping is fine (the day ends at your bed), but a day frittered away on
+micro-steps is a day wasted.
 
 Lua pitfalls (the interpreter is MoonSharp, not standard Lua):
 - Never put a number literal between two .. concatenators: x..17..y is a

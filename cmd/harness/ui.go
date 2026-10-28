@@ -226,36 +226,14 @@ func padRight(s string, w int) string {
 	return s + strings.Repeat(" ", w-charmansi.StringWidth(s))
 }
 
-// wrapText word-wraps s to at most width columns (rune-aware). Long tokens
-// with no space break hard at the edge.
+// wrapText word-wraps s to at most width display columns, delegating to
+// charmansi.Wrap — grapheme-cluster aware (no mid-emoji breaks), ANSI-safe,
+// wide-char aware. Exactly the width function the rest of the frame uses.
 func wrapText(s string, width int) []string {
-	runes := []rune(s)
-	if width <= 0 || len(runes) <= width {
+	if width <= 0 {
 		return []string{s}
 	}
-	var out []string
-	rest := runes
-	for len(rest) > width {
-		cut := width
-		// Prefer a word boundary: back up to the last space in this row.
-		if rest[cut-1] != ' ' {
-			for i := cut - 1; i > 0; i-- {
-				if rest[i] == ' ' {
-					cut = i
-					break
-				}
-			}
-		}
-		out = append(out, string(rest[:cut]))
-		rest = rest[cut:]
-		if len(rest) > 0 && rest[0] == ' ' {
-			rest = rest[1:]
-		}
-	}
-	if len(rest) > 0 {
-		out = append(out, string(rest))
-	}
-	return out
+	return strings.Split(charmansi.Wrap(s, width, ""), "\n")
 }
 
 // renderHistory turns raw events into display lines for the active mode: a
@@ -490,7 +468,7 @@ func (m uiModel) plainView() string {
 func (m uiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	mm := uiModel(m)
 
-		// Drain any model-loop events (non-blocking so we never stall the TUI).
+	// Drain any model-loop events (non-blocking so we never stall the TUI).
 	// Raw events go into history; View() renders them per the display mode.
 drain:
 	for {

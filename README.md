@@ -2,8 +2,9 @@
 
 An LLM ("Le Chonk") plays Stardew Valley through a custom harness: the model
 writes small Lua scripts that drive a SMAPI mod inside the game, one bounded action at
-a time, and plans its days around them. Currently pointed at Qwen3.8-27B on a local
-ninfer endpoint — any OpenAI-compatible model works, it's pure config.
+a time, and plans its days around them. The challenge requires **mistral-large-4** —
+fittingly, Mistral's own nickname for that model is "Le Chonk" — reached via the
+Mistral cloud API. Any OpenAI-compatible endpoint works; it's pure config.
 
 Built for the ["Le Chonk wants to play" community challenge](https://app.notion.com/p/mistralai/Le-Chonk-wants-to-play-Community-Challenge-Rules-3fb6ba59a7fe80a1a3fcd0646cd83595)
 (16–29 October 2026). Submission: a demo video (≤ 2 min) + this repository + a short
@@ -20,8 +21,9 @@ description, posted to `#challenges-submissions`.
   preserved as `StardewValley-original`); an installer-based install keeps
   `StardewModdingAPI` instead.
 - **Model endpoint** — any OpenAI-compatible API. `.envrc` points the harness at
-  `http://saturn:9933/v1` (local ninfer server, model `Qwen3.8-27B`, no auth);
-  override with `LECHONK_BASE_URL` / `LECHONK_MODEL` / `LECHONK_API_KEY`.
+  `https://api.mistral.ai/v1` with model `mistral-large-4` (the challenge's required
+  model — Mistral's own nickname for it is "Le Chonk"); override with
+  `LECHONK_BASE_URL` / `LECHONK_MODEL` / `LECHONK_API_KEY`.
 - **Nix** — `nix develop` gives the dev shell for building the mod
   (Go + .NET SDK). The mod build locates the game folder via a machine-local
   `stardewvalley.targets` in `$HOME` (not committed); `dotnet build` auto-deploys
@@ -92,8 +94,8 @@ Configuration (all optional — the defaults work out of the box):
 
 | Var | Purpose | Default |
 |---|---|---|
-| `LECHONK_BASE_URL` | model endpoint | `http://saturn:9933/v1` |
-| `LECHONK_MODEL` | model id | `Qwen3.8-27B` |
+| `LECHONK_BASE_URL` | model endpoint | `https://api.mistral.ai/v1` |
+| `LECHONK_MODEL` | model id | `mistral-large-4` |
 | `LECHONK_API_KEY` | model key, if the endpoint needs one | unset |
 | `SV_SMAPI_LAUNCH_CMD` | how the game is launched | `steam-run ./StardewValley` |
 | `LECHONK_DEBUG_PORT` | debug endpoint port | `17643` |
