@@ -104,6 +104,7 @@ public class ScriptController
             botTable["getMapSchema"] = (Func<object?>)(() => _botApi.GetMapSchema());
             botTable["isWalkable"] = (Func<object?, object?, object?>)((x, y) => _botApi.IsWalkable(x, y));
             botTable["getTileObject"] = (Func<object?, object?, object?>)((x, y) => _botApi.GetTileObject(x, y));
+            botTable["getPosition"] = (Func<object?>)(() => _botApi.GetPosition());
             botTable["getInventory"] = (Func<object?>)(() => _botApi.GetInventory());
             botTable["getTime"] = (Func<object?>)(() => _botApi.GetTime());
             botTable["getDate"] = (Func<object?>)(() => _botApi.GetDate());
@@ -308,6 +309,10 @@ public class ScriptController
 
     private static object? Sanitize(object? obj)
     {
+        // Multi-value returns arrive as DynValue tuples; unwrap DynValues so
+        // tables don't fall through to ToString() ("(Table)").
+        if (obj is MoonSharp.Interpreter.DynValue dv)
+            obj = dv.ToObject();
         if (obj == null) return null;
         if (obj is MoonSharp.Interpreter.Table table)
         {

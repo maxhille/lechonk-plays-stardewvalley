@@ -128,6 +128,14 @@ public class BotApi
         }
     }
 
+    /// <summary>Player's current tile position {x, y} (0-indexed).</summary>
+    public object? GetPosition()
+    {
+        var f = Game1.player;
+        if (f == null) return null;
+        return new Dictionary<string, object?> { ["x"] = f.Tile.X, ["y"] = f.Tile.Y };
+    }
+
     /// <summary>Check if the tile at (x, y) is walkable.</summary>
     public bool IsWalkable(object? x, object? y)
     {
@@ -433,7 +441,8 @@ public class BotApi
                 new { name = "bot.tap(buttonName)", description = "Tap a button and wait one tick for the game to process it." },
                 new { name = "bot.moveLeft(ticks) / bot.moveRight(ticks) / bot.moveUp(ticks) / bot.moveDown(ticks)", description = "Hold the LEFT thumbstick in a direction for `ticks` input ticks. Movement stops automatically when the script ends." },
                 new { name = "bot.wait(ticks)", description = "Wait for the given number of ticks." },
-                new { name = "bot.getMapSchema()", description = "Map schema for the current location: { location, width, height, player {x, y}, walkable (grid rows of '.'/'#'), warps [{x, y, target, targetX, targetY}] }." },
+                new { name = "bot.getPosition()", description = "Your current tile position {x, y} (0-indexed)." },
+                new { name = "bot.getMapSchema()", description = "Map schema for the current location: { location, width, height, player {x, y}, walkable (array of row strings; row i+1 is tile y=i; '.' walkable, '#' blocked), warps [{x, y, target, targetX, targetY}] }. All coordinates are 0-indexed tiles." },
                 new { name = "bot.isWalkable(x, y)", description = "Check if tile (x, y) is walkable." },
                 new { name = "bot.getTileObject(x, y)", description = "Get object at tile (x, y) or null." },
                 new { name = "bot.getInventory()", description = "List of {name, count, id} for inventory items." },
