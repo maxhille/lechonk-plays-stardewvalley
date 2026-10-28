@@ -179,7 +179,7 @@ public class ScriptController
             }
             catch (Exception ex)
             {
-                compileError = ex.Message; // e.g. a Lua syntax error
+                compileError = ErrWithLine(ex); // e.g. a Lua syntax error
             }
 
             if (compileError != null || coro == null)
@@ -214,6 +214,18 @@ public class ScriptController
         var t = _tcs.Task;
         t.Wait();
         return t.Result;
+    }
+
+    /// <summary>Format a script exception — MoonSharp's DecoratedMessage carries the line and column.</summary>
+    private static string ErrWithLine(Exception ex)
+    {
+        if (ex is MoonSharp.Interpreter.InterpreterException mx)
+        {
+            var dec = mx.DecoratedMessage;
+            if (!string.IsNullOrEmpty(dec))
+                return "script_error: " + dec.Replace("chunk_1:", "");
+        }
+        return "script_error: " + ex.Message;
     }
 
     /// <summary>Advance the script by one game tick. Called from the game loop.</summary>
@@ -277,7 +289,7 @@ public class ScriptController
             {
                 Prints = "",
                 Result = null,
-                Error = $"script_error: {ex.Message}",
+                Error = ErrWithLine(ex),
                 TicksUsed = _ticksUsed,
                 Event = ScriptEvent.Cancelled
             };

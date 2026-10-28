@@ -233,8 +233,8 @@ func (m *modelState) seedMessages() []ChatMessage {
 			"return bot.listSaves(), load the one that belongs to you (it is named after " +
 			"you), then wait for the world to be ready (bot.waitForWorldReady()), call " +
 			"read_script_api to see your tools, and begin playing your day one action at " +
-			"a time — start by exploring the house you wake up in, then get to work. " +
-			"Say DONE when I tell you to stop."},
+			"a time — first explore the house you wake up in (the bed, the TV, the door) " +
+			"before you leave it. Say DONE when I tell you to stop."},
 	}
 }
 
@@ -529,8 +529,9 @@ then wait for the world to be ready:
   return bot.waitForWorldReady()
 Only start playing once the world is ready.
 
-Begin: launch the game, load your save, and read the API. On your first day,
-start by exploring the house you wake up in: read the map (bot.getMapSchema()),
-find the bed (that is where you sleep), the TV, and the door to the farm.
-Then go outside and get to work.
+Begin: launch the game, load your save, and read the API.
+On your first day you wake up in your house. Explore it before you leave:
+read the map (bot.getMapSchema()), list the furniture (bot.listFurniture()),
+and find the bed (that is where you sleep), the TV, and the door to the farm.
+Do not leave the house until you have done this. Then go outside and get to work.
 `
