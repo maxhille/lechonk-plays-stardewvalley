@@ -26,7 +26,6 @@ const (
 	palStopped    = "#d95d5d" // terracotta red (STOPPED)
 	palExited     = "#e0b13a" // amber — process died on its own (not a clean stop)
 	palTranscript = "#ede0c4" // warm off-white (main transcript text)
-	palThinking   = "#ffe066" // bright gold — Le Chonk's own words / thoughts
 	palFooter     = "#b8a88a" // muted tan (keys / secondary)
 	palDivider    = "#6e6a5e" // subtle warm-gray (divider line)
 	palPaused     = "#8fb8d4" // calm blue (PAUSED)
@@ -36,7 +35,6 @@ const (
 var (
 	titleStyle      = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(palTitle))
 	transcriptStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(palTranscript))
-	thinkingStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(palThinking))
 	dividerStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color(palDivider))
 	statusRun       = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(palRunning))
 	statusStop      = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(palStopped))
@@ -131,33 +129,41 @@ func (m *uiModel) togglePause() {
 	}
 }
 
-// eventLine turns one model-loop event into a transcript line.
-func eventLine(ev thoughtEvent) string {
-	var out string
+// evLines turns one model-loop event into one or more transcript lines.
+// Multi-line payloads (pretty-printed JSON results) split into several lines
+// so the frame wraps and pads each one. The model's plain-text thoughts are
+// not shown in the TUI at all (they still go to the transcript log).
+func evLines(ev thoughtEvent) []string {
+	var lines []string
 	switch ev.Kind {
 	case evStart:
-		out = "Le Chonk is starting…"
+		lines = []string{"Le Chonk is starting…"}
 	case evStop:
-		out = "Le Chonk stopped."
+		lines = []string{"Le Chonk stopped."}
 	case evDone:
-		out = "Le Chonk: DONE — day complete."
+		lines = []string{"Le Chonk: DONE — day complete."}
 	case evThought:
-		out = "Le Chonk (model): " + ev.Text
+		return nil // not shown in the TUI
 	case evTool:
-		out = "    → action to game: " + ev.Text
+		lines = []string{"    → action to game: " + ev.Text}
 	case evResult:
-		out = "    ← game → model: " + ev.Text
+		lines = []string{"    ← game → model:"}
+		if ev.Text != "" {
+			for _, ln := range strings.Split(ev.Text, "\n") {
+				lines = append(lines, "    "+ln)
+			}
+		}
 	case evError:
-		out = "    ✗ error: " + ev.Text
+		lines = []string{"    ✗ error: " + ev.Text}
 	case evInfo:
-		out = "    · " + ev.Text
+		lines = []string{"    · " + ev.Text}
 	default:
-		out = ev.Text
+		lines = []string{ev.Text}
 	}
-	if ev.Turn <= 0 {
-		return out
+	if ev.Turn > 0 && len(lines) > 0 {
+		lines[0] = fmt.Sprintf("[t%d] %s", ev.Turn, lines[0])
 	}
-	return fmt.Sprintf("[t%d] %s", ev.Turn, out)
+	return lines
 }
 
 // refreshTick is how often the frame re-fetches game state / uptime / api.
@@ -257,12 +263,8 @@ func renderTranscript(lines []string, width, rows int) []string {
 			lastTurn = turn
 			seenTurn = true
 		}
-		st := transcriptStyle
-		if strings.Contains(line, "Le Chonk (model):") {
-			st = thinkingStyle
-		}
 		for _, wl := range wrapText(line, width) {
-			all = append(all, st.Render(wl))
+			all = append(all, transcriptStyle.Render(wl))
 		}
 	}
 	start := 0
@@ -418,7 +420,9 @@ drain:
 			if !ok {
 				break drain
 			}
-			mm.addLine(eventLine(ev))
+			for _, ln := range evLines(ev) {
+				mm.addLine(ln)
+			}
 		default:
 			break drain
 		}

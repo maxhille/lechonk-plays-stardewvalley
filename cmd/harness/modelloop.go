@@ -220,7 +220,7 @@ func (m *modelState) loop() {
 		for _, tc := range msg.ToolCalls {
 			m.emitText(evTool, turn, "→ "+tc.Function.Name+"("+tc.Function.Arguments+")")
 			result := m.dispatch(tc.Function.Name, tc.Function.Arguments, turn)
-			m.emitText(evResult, turn, truncateDisplay(result, 180))
+			m.emitText(evResult, turn, prettyResult(result))
 			messages = append(messages, ChatMessage{
 				Role:       "tool",
 				ToolCallID: tc.ID,
@@ -403,6 +403,24 @@ func (m *modelState) doHTTP(req *http.Request) (string, error) {
 
 func isDone(content string) bool {
 	return strings.Contains(strings.ToUpper(strings.TrimSpace(content)), "DONE")
+}
+
+// prettyResult formats a tool result for display: valid JSON is pretty-printed
+// (indented, newlines preserved) so it reads as a block; anything else is
+// returned trimmed but otherwise untouched (its newlines are kept).
+func prettyResult(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return ""
+	}
+	var v interface{}
+	if err := json.Unmarshal([]byte(s), &v); err != nil {
+		return s
+	}
+	if b, err := json.MarshalIndent(v, "", "  "); err == nil {
+		return string(b)
+	}
+	return s
 }
 
 func truncateDisplay(s string, n int) string {

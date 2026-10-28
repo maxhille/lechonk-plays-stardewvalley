@@ -5,26 +5,46 @@ import (
 	"testing"
 )
 
-// TestFrameThinkingRenders proves a thought line (the "Le Chonk (model):" prefix)
-// appears in the frame and gets the distinct thinkingStyle (bright gold).
-func TestFrameThinkingRenders(t *testing.T) {
+// TestFrameHidesThinking proves the model's plain-text thoughts are NOT shown
+// in the TUI, while the action and the pretty-printed multi-line result are.
+func TestFrameHidesThinking(t *testing.T) {
 	gm := NewGameManager("/nonexistent/xyz", 0)
-	m := uiModel{gm: gm, debugPort: 17643, w: 80, h: 16}
-	m.lines = []string{
-		"Le Chonk (model): I'll start by launching the game and reading the bot API schema.",
-		"Le Chonk (model):    (thinking) Let's start by launching the game.",
-		"    → action to game: launch_game({})",
-	}
-	out := m.frame()
+	m := uiModel{gm: gm, debugPort: 17643, w: 80, h: 24}
 
-	if !strings.Contains(out, "I'll start by launching the game") {
-		t.Fatalf("visible-thought line missing from frame")
+	for _, ev := range []thoughtEvent{
+		{Kind: evThought, Turn: 1, Text: "I'll start by launching the game."},
+		{Kind: evTool, Turn: 1, Text: "launch_game({})"},
+		{Kind: evResult, Turn: 1, Text: "{\n  \"ok\": true,\n  \"evt\": \"completed\"\n}"},
+	} {
+		for _, ln := range evLines(ev) {
+			m.addLine(ln)
+		}
 	}
-	if !strings.Contains(out, "(thinking) Let's start by launching the game") {
-		t.Fatalf("reasoning ('thinking') line missing from frame")
+
+	out := m.frame()
+	if strings.Contains(out, "I'll start by launching the game") {
+		t.Fatalf("thinking should not be shown in the TUI")
 	}
 	if !strings.Contains(out, "launch_game({})") {
 		t.Fatalf("action line missing from frame")
 	}
-	t.Logf("thought lines render in the frame (gold style applied in a real TTY)")
+	if !strings.Contains(out, "← game → model:") {
+		t.Fatalf("result arrow missing from frame")
+	}
+	if !strings.Contains(out, "\"ok\": true") {
+		t.Fatalf("result JSON key line missing from frame")
+	}
+}
+
+// TestPrettyResult keeps newlines in JSON and leaves non-JSON alone.
+func TestPrettyResult(t *testing.T) {
+	if got := prettyResult(`{"a":1,"b":[2,3]}`); !strings.Contains(got, "\n") {
+		t.Fatalf("expected indented multi-line JSON, got %q", got)
+	}
+	if got := prettyResult("ERROR: no save"); got != "ERROR: no save" {
+		t.Fatalf("non-JSON should pass through untouched, got %q", got)
+	}
+	if got := prettyResult("  \n  "); got != "" {
+		t.Fatalf("whitespace-only should be empty, got %q", got)
+	}
 }
