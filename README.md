@@ -209,7 +209,8 @@ Lua scripts see a `bot` table:
   `bot.selectTool(name)` — put the named item/tool in your hand (e.g. `Hoe`).
 - **Saves:** `bot.listSaves()`, `bot.loadGame(slotName)` (from the title screen,
   skips character creation), `bot.exitToTitle()`.
-- **State:** `bot.getPosition()`, `bot.isTilePassable(x, y)`, `bot.getTileObject(x, y)`,
+- **State:** `bot.getPosition()`, `bot.getFacing()` (which way you face —
+  interaction targets the faced tile), `bot.isTilePassable(x, y)`, `bot.getTileObject(x, y)`,
   `bot.getEnergy()`, `bot.getInventory()`, `bot.getTime()`, `bot.getDate()`, `bot.wait(ticks)`.
 - **Location:** `bot.listObjects()` (placed objects, incl. ground debris
   Stone/Weeds/Twig), `bot.listTerrainFeatures()`
@@ -217,7 +218,9 @@ Lua scripts see a `bot` table:
   `bot.listFurniture()`, `bot.getWarps()` (doors/exits), `bot.listNpcs()`,
   `bot.listAnimals()`.
 - **Menus/dialogue:** `bot.getMenuType()` (type, buttonCount, **text** — the
-  narrative dialogue text), `bot.getMenuButtons()` (component index/type/
+  narrative dialogue text), `bot.waitForMenu(timeout)` (block until a menu
+  opens — menus appear asynchronously, e.g. chest lids animate ~1s before the
+  menu shows), `bot.getMenuButtons()` (component index/type/
   label/visible/bounds — **label** is the response text for `DialogueBox`
   menus), `bot.clickMenuButton(index)`, `bot.advanceDialogue()`,
   `bot.selectDialogueOption(index)`, `bot.closeDialogue()`.

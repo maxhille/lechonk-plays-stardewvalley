@@ -506,7 +506,8 @@ Lua (bot) basics — you see a bot table:
   LT/RT (cycle hotbar item), LB/RB (shift hotbar)
 - bot.cursorUp/Down/Left/Right(ticks)  move the cursor (right stick); scrolls in menus
 - bot.getTime(), bot.getDate()        the in-game clock / date
-- bot.getPosition()                   where you are (x, y)
+- bot.getPosition(), bot.getFacing()   where you are (x, y) and which way you face
+  (interaction targets the faced tile — check facing after positioning)
 - bot.isTilePassable(x,y), bot.getTileObject(x,y)   probe the map — walls/buildings, then what's on the tile
 - bot.listObjects()                   placed objects on the floor (chests, machines, items)
 - bot.listTerrainFeatures()           trees, weeds, stones, hoe-dirt — hoe-dirt entries carry watered, and when planted: crop (name) + ready
@@ -519,6 +520,14 @@ Lua (bot) basics — you see a bot table:
 - bot.getMenuType(), bot.getMenuButtons()   what menu/dialogue is open
   (getMenuButtons lists each button and its label; the label is what the user
   reads on a DialogueBox menu)
+- bot.waitForMenu(timeout)            wait until a menu opens (default 120 ticks)
+
+Menus are asynchronous: after you tap A on an object, the menu takes real
+ticks to appear (a chest lid animates ~1s). Never check getMenuType() once
+after a fixed wait — call bot.waitForMenu() and branch on what it returns.
+While a menu is open, tapping A clicks at the cursor, not the faced tile:
+check getMenuType() before every tap so you know whether you are acting on
+the world or clicking inside a menu.
 - bot.clickMenuButton(index), bot.advanceDialogue(),
   bot.selectDialogueOption(index), bot.closeDialogue()   menu navigation
 - bot.listSaves(), bot.loadGame(slot), bot.exitToTitle()  saves
