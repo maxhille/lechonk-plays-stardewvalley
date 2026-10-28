@@ -238,21 +238,10 @@ func (m *modelState) loop() {
 // not forwarded — only the state change; his full words arrive as evSay when
 // the reply completes.
 func (m *modelState) chatStreamed(messages []ChatMessage, turn int) (*ChatResponse, error) {
-	var seenReasoning, seenSay bool
-	return m.client.ChatStream(m.ctx, messages, m.tools(), func(kind streamDeltaKind, text string) {
-		switch kind {
-		case deltaThink:
-			if !seenReasoning {
-				seenReasoning = true
-				m.emitText(evThinking, turn, "…")
-			}
-		case deltaSay:
-			if !seenSay {
-				seenSay = true
-				m.emitText(evThinking, turn, "…")
-			}
-		}
-	})
+	// Indicator from the moment the call starts — the first token can take
+	// seconds, and the chat should show 💭 during that wait, not silence.
+	m.emitText(evThinking, turn, "…")
+	return m.client.ChatStream(m.ctx, messages, m.tools(), nil)
 }
 
 // seedMessages is the system prompt + the initial "start the game" user turn.
@@ -533,6 +522,13 @@ are stream chat, not technical logs:
   plans, positions, tool calls and debugging live there. If a plan goes
   wrong, the message can be "ok that didn't work 😭 let's try something else"
   — the technical analysis happens silently.
+
+A real streamer narrates WHILE playing — they never go silent for long. Every
+few turns (at least every 2-3), send a chat message for the audience alongside
+your tool call: what you're up to in plain hype words ("ok chat we're heading
+OUTSIDE 🚪", "found the seeds let's GO 🌱"). Working silently for many turns
+in a row is a dead stream — even mid-plan, one line about how it's going beats
+silence.
 
 Prefer acting. Chat without acting is just vibes; if you only chat and never
 act, the harness will keep nudging you to act.

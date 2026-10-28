@@ -98,7 +98,7 @@ func TestRenderHistory(t *testing.T) {
 		{Kind: evSay, Turn: 1, Text: strings.Repeat("word ", 40)},
 		{Kind: evSay, Turn: 2, Text: "next turn thought"},
 	}
-	out := renderHistory(events, modeStreamer, 40, 10)
+	out := renderHistory(events, modeStreamer, 40, 10, false)
 	if len(out) != 10 {
 		t.Fatalf("expected exactly 10 display rows, got %d", len(out))
 	}
@@ -123,7 +123,7 @@ func TestRenderHistory(t *testing.T) {
 		{Kind: evResult, Turn: 1, Text: "{\"x\":3}"},
 		{Kind: evTool, Turn: 2, Text: "run_script(tap('A'))"},
 	}
-	dbg := stripAnsi(strings.Join(renderHistory(mech, modeDebug, 40, 10), "\n"))
+	dbg := stripAnsi(strings.Join(renderHistory(mech, modeDebug, 40, 10, false), "\n"))
 	if !strings.Contains(dbg, "────") || !strings.Contains(dbg, "[t2]") {
 		t.Errorf("debug render lost its turn chrome:\n%s", dbg)
 	}

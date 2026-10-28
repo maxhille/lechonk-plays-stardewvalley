@@ -76,27 +76,60 @@ func TestMultiLineResultSpansLines(t *testing.T) {
 	}
 }
 
-// The thinking indicator: while the model is generating, the streamer view
-// shows "…"; once his message arrives, the indicator is gone.
+// The activity indicator: while the model is generating or a tool is running,
+// the chat shows a blinking emoji (💭 / ⚙️); once his message arrives, it's
+// gone. Blink phase toggles the trailing dots.
 func TestThinkingIndicatorLifecycle(t *testing.T) {
 	pending := renderHistory([]thoughtEvent{
 		{Kind: evSay, Turn: 1, Text: "first message"},
 		{Kind: evThinking, Turn: 2, Text: "…"},
-	}, modeStreamer, 40, 10)
-	if !strings.Contains(stripAnsi(strings.Join(pending, "\n")), "…") {
-		t.Errorf("pending turn must show the thinking indicator:\n%s", stripAnsi(strings.Join(pending, "\n")))
+	}, modeStreamer, 40, 10, true)
+	joined := stripAnsi(strings.Join(pending, "\n"))
+	if !strings.Contains(joined, "💭 …") {
+		t.Errorf("pending turn must show the blinking thinking indicator:\n%s", joined)
+	}
+
+	toolRun := renderHistory([]thoughtEvent{
+		{Kind: evSay, Turn: 1, Text: "first message"},
+		{Kind: evTool, Turn: 2, Text: "run_script(...)"},
+	}, modeStreamer, 40, 10, false)
+	joined = stripAnsi(strings.Join(toolRun, "\n"))
+	if !strings.Contains(joined, "⚙️") || strings.Contains(joined, "⚙️ …") {
+		t.Errorf("tool in flight must show the bare tool indicator (blink off):\n%s", joined)
 	}
 
 	arrived := renderHistory([]thoughtEvent{
 		{Kind: evSay, Turn: 1, Text: "first message"},
 		{Kind: evThinking, Turn: 2, Text: "…"},
 		{Kind: evSay, Turn: 2, Text: "second message"},
-	}, modeStreamer, 40, 10)
-	joined := stripAnsi(strings.Join(arrived, "\n"))
-	if strings.Contains(joined, "…") {
+	}, modeStreamer, 40, 10, true)
+	joined = stripAnsi(strings.Join(arrived, "\n"))
+	if strings.Contains(joined, "💭") || strings.Contains(joined, "⚙️") {
 		t.Errorf("indicator must disappear once his words arrive:\n%s", joined)
 	}
-	if !strings.Contains(joined, "second message") {
-		t.Errorf("his message must be shown:\n%s", joined)
+	if !strings.Contains(joined, "> second message") {
+		t.Errorf("his message must be shown with the turn prefix:\n%s", joined)
+	}
+}
+
+// The indicator line gets a blank line above it — its own turn in the chat.
+func TestIndicatorTurnSeparation(t *testing.T) {
+	out := renderHistory([]thoughtEvent{
+		{Kind: evSay, Turn: 1, Text: "hello chat"},
+		{Kind: evThinking, Turn: 2, Text: "…"},
+	}, modeStreamer, 40, 10, true)
+	// find the row with the indicator; the row above must be blank (padded spaces)
+	found := -1
+	for i, ln := range out {
+		if strings.Contains(stripAnsi(ln), "💭") {
+			found = i
+			break
+		}
+	}
+	if found < 1 {
+		t.Fatalf("indicator missing or at the top row: %v", out)
+	}
+	if strings.TrimSpace(stripAnsi(out[found-1])) != "" {
+		t.Errorf("expected a blank line above the indicator, got %q", out[found-1])
 	}
 }

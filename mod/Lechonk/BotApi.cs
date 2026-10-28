@@ -505,6 +505,18 @@ public class BotApi
             ["text"] = menu is DialogueBox db ? db.getCurrentString() : null
         };
 
+        // Letters: the text lives in mailMessage (one string per page), plus
+        // the mail title and any attached quest/recipe.
+        if (menu is StardewValley.Menus.LetterViewerMenu letter)
+        {
+            info["text"] = string.Join("\n", letter.mailMessage);
+            info["title"] = letter.mailTitle;
+            if (!string.IsNullOrEmpty(letter.learnedRecipe))
+                info["learnedRecipe"] = letter.learnedRecipe;
+            if (!string.IsNullOrEmpty(letter.questID))
+                info["quest"] = letter.questID;
+        }
+
         // The tabbed GameMenu (Start button): name the active tab and list them
         // all — LT/RT cycle tabs, B closes the menu.
         if (menu is StardewValley.Menus.GameMenu gm)

@@ -64,6 +64,7 @@ type uiModel struct {
 	events    chan thoughtEvent // raw events pushed by the model loop
 	history   []thoughtEvent    // raw events, rendered per display mode in View()
 	mode      string            // modeStreamer (default) or modeDebug
+	blink     bool              // activity-indicator phase, toggled on each refresh tick
 	paused    bool              // game paused via the admin /pause toggle (key p)
 	w, h      int               // terminal size, set from tea.WindowSizeMsg
 }
@@ -260,18 +261,7 @@ func wrapText(s string, width int) []string {
 // renderHistory turns raw events into display lines for the active mode: a
 // divider between turns, word-wrapped text, bottom-anchored to rows. Returns
 // exactly rows entries (nil when rows <= 0).
-// hasLaterEvent reports whether any event follows the one at ev's position in
-// the slice (identity by index, since events repeat).
-func hasLaterEvent(events []thoughtEvent, ev thoughtEvent) bool {
-	for i := len(events) - 1; i >= 0; i-- {
-		if events[i] == ev {
-			return i < len(events)-1
-		}
-	}
-	return false
-}
-
-func renderHistory(events []thoughtEvent, mode string, width, rows int) []string {
+func renderHistory(events []thoughtEvent, mode string, width, rows int, blinkOn bool) []string {
 	if rows <= 0 {
 		return nil
 	}
@@ -279,14 +269,10 @@ func renderHistory(events []thoughtEvent, mode string, width, rows int) []string
 	var all []string
 	lastTurn := 0
 	seenTurn := false
+	lastSayTurn := -1
 	for _, ev := range events {
-		// The thinking indicator is ephemeral: show it only while it is the
-		// newest thing — once his words (or any later event) arrive, it goes.
+		// evThinking is ephemeral — the live indicator below renders it.
 		if ev.Kind == evThinking {
-			if mode != modeStreamer || hasLaterEvent(events, ev) {
-				continue
-			}
-			all = append(all, transcriptStyle.Render("…"))
 			continue
 		}
 		lines := evLines(ev, mode)
@@ -301,10 +287,46 @@ func renderHistory(events []thoughtEvent, mode string, width, rows int) []string
 			lastTurn = ev.Turn
 			seenTurn = true
 		}
+		if mode == modeStreamer {
+			// Chat: a blank line between turns, each turn's message prefixed "> ".
+			if lastSayTurn != -1 && ev.Turn != lastSayTurn {
+				all = append(all, "")
+			}
+			lastSayTurn = ev.Turn
+			for _, ln := range lines {
+				for _, wl := range wrapText("> "+ln, width) {
+					all = append(all, transcriptStyle.Render(wl))
+				}
+			}
+			continue
+		}
 		for _, ln := range lines {
 			for _, wl := range wrapText(ln, width) {
 				all = append(all, transcriptStyle.Render(wl))
 			}
+		}
+	}
+	// Live activity indicator (chat only): when the newest event is the model
+	// generating (evThinking) or a dispatched tool still running (evTool), show
+	// an emoji; the "…" blinks on the refresh tick so viewers see life.
+	if mode == modeStreamer && len(events) > 0 {
+		indicator := ""
+		switch events[len(events)-1].Kind {
+		case evThinking:
+			indicator = "💭"
+		case evTool:
+			indicator = "⚙️"
+		}
+		if indicator != "" {
+			if blinkOn {
+				indicator += " …"
+			}
+			// The indicator is its own turn in the chat: a blank line above it,
+			// same as a message.
+			if len(all) > 0 {
+				all = append(all, "")
+			}
+			all = append(all, transcriptStyle.Render("> "+indicator))
 		}
 	}
 	start := 0
@@ -347,7 +369,7 @@ func (m uiModel) frame() string {
 		content[1] = dividerStyle.Render(divider)
 		rows := insideH - 2
 		if rows > 0 {
-			for i, line := range renderHistory(m.history, modeStreamer, insideW, rows) {
+			for i, line := range renderHistory(m.history, modeStreamer, insideW, rows, m.blink) {
 				content[2+i] = line
 			}
 		}
@@ -386,7 +408,7 @@ func (m uiModel) frame() string {
 
 	// Transcript: bottom-anchored, turn-divided, word-wrapped.
 	if transcriptRows > 0 {
-		for i, line := range renderHistory(m.history, modeDebug, insideW, transcriptRows) {
+		for i, line := range renderHistory(m.history, modeDebug, insideW, transcriptRows, false) {
 			content[3+i] = line
 		}
 	}
@@ -459,7 +481,7 @@ func (m uiModel) plainView() string {
 		lines = append(lines, "last error: "+s.Error)
 	}
 	lines = append(lines, "")
-	lines = append(lines, renderHistory(m.history, modeDebug, 80, 12)...)
+	lines = append(lines, renderHistory(m.history, modeDebug, 80, 12, false)...)
 	lines = append(lines, "")
 	lines = append(lines, fmt.Sprintf("mode: %s (d)   keys: l start · s stop · r restart · p pause · q quit   (auto-refreshes ~0.2s)", strings.ToUpper(m.mode)))
 	return strings.Join(lines, "\n")
@@ -489,8 +511,10 @@ drain:
 		mm.w = msg.Width
 		mm.h = msg.Height
 	case tickMsg:
-		// Re-render happens automatically (View re-fetches gm.Status()). Just
-		// keep the refresh chain going.
+		// Re-render happens automatically (View re-fetches gm.Status()). Toggle
+		// the activity-indicator phase for a simple blink, and keep the refresh
+		// chain going.
+		mm.blink = !mm.blink
 		return tea.Model(mm), tickCmd()
 	case tea.KeyMsg:
 		if msg.Type == tea.KeyRunes && len(msg.Runes) > 0 {
