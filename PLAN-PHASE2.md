@@ -5,9 +5,10 @@ API, launches the game, runs Lua, thinks, and repeats.
 
 ## Goal
 
-A Go + Bubble Tea TUI that owns the Mistral (or any OpenAI-compatible)
-conversation loop and manages the game as a child process. LeChonk walks the
-farmer unaided; the human watches him think.
+A Go + Bubble Tea TUI that owns the model conversation (any OpenAI-compatible
+endpoint; currently Qwen3.8-27B on a local ninfer server) and manages the game
+as a child process. LeChonk walks the farmer unaided; the human watches him
+think.
 
 ## Architecture
 
@@ -25,7 +26,7 @@ user systemd
              │
              └─ steam-run → Stardew Valley (game + SMAPI Lechonk mod)
    ────────────────────────────────────────────────────
-   external (network): Mistral / any OpenAI-compatible endpoint
+   external (network): OpenAI-compatible model endpoint (local ninfer)
 ```
 
 Process tree while the game is running:
@@ -49,21 +50,29 @@ the game. Mod reload = rebuild (auto-deploys the DLL) →
   live game status, `l`/`s`/`r`/`q` keys, and a warm "Stardew Valley" palette
   (parchment text, gold border, green = running, terracotta = stopped).
 - Game mgmt: the harness owns the game as a child; SIGTERM graceful → SIGKILL
-  last resort; kill-harness = kill-game verified; ad-hoc run via
+  last resort; kill-harness = kill-game verified; process death detected via
+  `cmd.Wait()` in a monitor goroutine (no polling); ad-hoc run via
   `systemd-run --user --unit=lechonk`.
 - Debug HTTP on `127.0.0.1:17643`: `GET /status`, `POST /launch /stop /restart`.
 - Mod build/redeploy loop verified (`dotnet build` auto-deploys the DLL).
-
-**Still to build (the brain itself):**
-- Model client: OpenAI-compat streaming + tool-call parsing, env config, UTC
-  header.
+- Model client: OpenAI-compat, non-streaming, tool-call parsing, env config
+  (`LECHONK_BASE_URL` / `LECHONK_MODEL` / `LECHONK_API_KEY`), pointed at
+  `http://saturn:9933/v1` (model `Qwen3.8-27B`, no auth).
 - The three tools wired: `launch_game`, `run_script`, `read_script_api`.
-- Prompt mgmt: stable prompt-cache key, compaction, system prompt, the
-  think→act→observe loop.
+- The think→tool→observe loop: system prompt, error recovery (failed calls and
+  stuck scripts feed back for re-planning), `DONE` to end the day, a transcript
+  log at `/tmp/lechonk-transcript.log`, and the model's `reasoning_content`
+  rendered as gold "thinking" lines in the TUI.
+- Verified live: Le Chonk launches the game, finds his save via
+  `bot.listSaves()`, loads it, waits for the world, and plays.
+
+**Still to build:**
+- Streaming (client is non-streaming) + the "running a script…" elapsed clock.
+- Prompt mgmt: per-turn UTC header, stable prompt-cache key, compaction.
 - Fake OpenAI-compat echo endpoint for zero-token harness testing.
-- Streaming-thoughts panel + top status bar (model / endpoint / in-game time /
-  day) and the "running a script…" elapsed clock.
+- Top status bar (model / endpoint / in-game time / day).
 - Flake `buildGoApplication` package (unverified recipe).
+- A `lechonk` systemd unit file (currently ad-hoc `systemd-run`).
 
 ## The flake — module root is the repo
 
@@ -92,17 +101,16 @@ package at `cmd/harness/`.
 
 ### Model client: one OpenAI-compatible endpoint
 
-Mistral *is* OpenAI-compatible, so a single client hits
-`POST {base}/v1/chat/completions` for both prod and any cheaper endpoint.
-Swap is pure config, no code:
+A single OpenAI-compat client hits `POST {base}/chat/completions`; swap is
+pure config, no code:
 
-- `LECHONK_BASE_URL` — default `https://api.mistral.ai/v1`
-- `LECHONK_MODEL` — default the large model
-- `LECHONK_API_KEY` — default `MISTRAL_API_KEY` for compatibility
+- `LECHONK_BASE_URL` — default `http://saturn:9933/v1` (local ninfer)
+- `LECHONK_MODEL` — default `Qwen3.8-27B`
+- `LECHONK_API_KEY` — unset (the local server needs no auth)
 
-This is how LeChonk talks to other endpoints during dev without burning money:
-point the base URL at OpenRouter's cheaper models, or a local Ollama. No code
-change.
+This is how LeChonk talks to other endpoints without burning money: point the
+base URL at any OpenAI-compatible server — OpenRouter, Ollama, a hosted
+Mistral. No code change.
 
 For testing the harness with **zero tokens**, stand up a tiny fake OpenAI-compat
 echo endpoint that returns canned tool calls. The whole harness (loop, TUI,
@@ -112,20 +120,19 @@ streaming, game launch) can be exercised against it.
 
 | Tool | Behavior |
 |---|---|
-| `launch_game(slot?)` | If the game is not up, exec it as a child via `SV_SMAPI_LAUNCH_CMD`; wait for `:17642` (bounded timeout); optionally load the named save and `waitForWorldReady`; return "up". Errors if already running (re-exec on explicit relaunch). |
+| `launch_game()` | If the game is not up, exec it as a child via `SV_SMAPI_LAUNCH_CMD`; wait for `:17642` (bounded timeout); return "up" once the mod API answers. LeChonk then loads his own save (`bot.listSaves()` → `bot.loadGame`) and waits for the world (`bot.waitForWorldReady`) via `run_script`. |
 | `run_script(lua)` | `POST /script`; blocks for the result; returns `{result, error, ticksUsed, evt}`. HTTP timeout set above the tick budget so a legitimately long script never false-timeouts. |
 | `read_script_api()` | `GET /api`; returns the schema. Cheap, no Lua — this is how LeChonk self-documents its own game. |
 
 ### Thinking out loud (TUI) — shell built, content next
 
-The TUI shell is **built and verified**: a full-screen frame (alternate screen),
+The TUI is **built and verified**: a full-screen frame (alternate screen),
 a bottom-anchored transcript, a live status line, and `l`/`s`/`r`/`q` keys, in
-a warm "Stardew Valley" palette. What remains is the *content* the model loop
-will feed into it:
+a warm "Stardew Valley" palette. The model loop feeds it live: Le Chonk's
+thoughts (visible text *and* the hidden `reasoning_content` lane, in gold)
+appear as they happen, interleaved with actions and results; every line also
+lands in `/tmp/lechonk-transcript.log`. Remaining:
 
-LeChonk's thoughts are shown live so the human follows the run:
-
-- A scrollable **transcript**: `LeChonk's thoughts` → action → result, in order.
 - A top **status bar**: model, endpoint, in-game time and day.
 - A bottom line: "LeChonk's thinking…" (spinner) / "running a script…"
   (elapsed clock).
@@ -149,9 +156,9 @@ hard path is safe too.
 
 | Var | Purpose | Default |
 |---|---|---|
-| `LECHONK_BASE_URL` | model endpoint | `https://api.mistral.ai/v1` |
-| `LECHONK_MODEL` | model id | large model |
-| `LECHONK_API_KEY` | model key | `MISTRAL_API_KEY` |
+| `LECHONK_BASE_URL` | model endpoint | `http://saturn:9933/v1` |
+| `LECHONK_MODEL` | model id | `Qwen3.8-27B` |
+| `LECHONK_API_KEY` | model key | unset (local server, no auth) |
 | `SV_SMAPI_LAUNCH_CMD` | game launch command | `steam-run <game dir>/StardewValley` |
 | `LECHONK_AUTO_START` | launch + load on start | off |
 | `LECHONK_TICK_BUDGET` | override mod tick cap | mod default |
@@ -182,19 +189,19 @@ Or a tiny `~/.config/systemd/user/lechonk.service` with `ExecStart` /
    (unverified recipe, see "The flake").
 2. ✅ **Game process mgmt** — child `exec`, port-wait, SIGTERM/SIGKILL; kill-
    harness=kill-game verified.
-3. ⬜ **Model client** — OpenAI-compat streaming + tool-call parsing, env config.
-   Unit-test against the fake echo endpoint (no money).
-4. ⬜ **The three tools** — `launch_game`, `run_script`, `read_script_api`
+3. ✅ **Model client** — OpenAI-compat, non-streaming, tool-call parsing, env
+   config. (Streaming + fake echo endpoint: still ⬜.)
+4. ✅ **The three tools** — `launch_game`, `run_script`, `read_script_api`
    wired to the client + game manager.
-5. ⬜ **TUI** — shell is done (full-screen, transcript, status, keys); remaining:
-   streaming-thoughts panel, top status bar, input (pause/kill). Goroutine↔
-   channel decoupling.
-6. ⬜ **Model loop** — system prompt, tool defs, UTC header, the think→act→
-   observe cycle.
+5. ✅ **TUI** — full-screen frame, transcript fed by the model loop (thoughts,
+   reasoning, actions, results), status line, keys. Remaining: streaming-
+   thoughts panel, top status bar, "running a script…" clock.
+6. ✅ **Model loop** — system prompt, tool defs, the think→act→observe cycle,
+   error recovery, `DONE`. Remaining: per-turn UTC header, compaction.
 7. ⬜ **Systemd** — `lechonk` unit; verify kill→game-dies; verify `restart`
    reloads the mod.
-8. ⬜ **Smoke test** — LeChonk reads the API, launches the game, loads the save,
-   walks to the TV, and shows everything as it goes.
+8. ✅ **Smoke test** — Le Chonk reads the API, launches the game, finds and
+   loads his save, and plays; every line in the TUI transcript and log.
 
 ## Risks
 

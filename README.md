@@ -1,8 +1,9 @@
 # Lechonk Plays Stardew Valley
 
-Mistral Large 4 ("Le Chonk") plays Stardew Valley through a custom harness: the model
+An LLM ("Le Chonk") plays Stardew Valley through a custom harness: the model
 writes small Lua scripts that drive a SMAPI mod inside the game, one bounded action at
-a time, and plans its days around them.
+a time, and plans its days around them. Currently pointed at Qwen3.8-27B on a local
+ninfer endpoint — any OpenAI-compatible model works, it's pure config.
 
 Built for the ["Le Chonk wants to play" community challenge](https://app.notion.com/p/mistralai/Le-Chonk-wants-to-play-Community-Challenge-Rules-3fb6ba59a7fe80a1a3fcd0646cd83595)
 (16–29 October 2026). Submission: a demo video (≤ 2 min) + this repository + a short
@@ -18,7 +19,9 @@ description, posted to `#challenges-submissions`.
   SMAPI install the SMAPI launcher replaces the game binary (the original is
   preserved as `StardewValley-original`); an installer-based install keeps
   `StardewModdingAPI` instead.
-- **Mistral API key** (`MISTRAL_API_KEY`) for the harness.
+- **Model endpoint** — any OpenAI-compatible API. `.envrc` points the harness at
+  `http://saturn:9933/v1` (local ninfer server, model `Qwen3.8-27B`, no auth);
+  override with `LECHONK_BASE_URL` / `LECHONK_MODEL` / `LECHONK_API_KEY`.
 - **Nix** — `nix develop` gives the dev shell for building the mod
   (Go + .NET SDK). The mod build locates the game folder via a machine-local
   `stardewvalley.targets` in `$HOME` (not committed); `dotnet build` auto-deploys
@@ -33,14 +36,11 @@ description, posted to `#challenges-submissions`.
   (`~/.config/StardewValley/Saves/<save>/<save>`); the game overwrites
   `startup_preferences`/`default_options` on close, so editing those alone does not
   stick. Set it in the save file.
-- **Process lifetime — run the game as a user systemd unit.** The game must be
-  started under `systemd-run --user`, not as a background process of the agent's
-  bash tool. Pi's bash tool group-kills (`SIGKILL`) the whole process group it
-  spawned when a tool call finishes or is aborted, so anything started inline
-  (`nohup`/`setsid`/`&`) dies the instant the call returns. A transient user
-  unit is reparented to the user systemd manager, outside pi's tree, and stays
-  up across tool calls. Start/stop/status via the `manage-game` skill:
-  `bash .pi/skills/manage-game/scripts/manage.sh {start|stop|status}`.
+- **Process lifetime.** Phase 1 ran the game as a user systemd unit (the
+  `manage-game` skill); in Phase 2 the harness owns the game as a child process,
+  so killing the harness kills the game. Note for agents: never launch the game
+  inline from pi's bash tool — it group-kills (`SIGKILL`) the whole process
+  group when the call finishes, so an inline game dies instantly.
 
 ## Running it
 
@@ -67,11 +67,10 @@ Run the harness:
    ```bash
    systemd-run --user --unit=lechonk --working-directory="$PWD" ./lechonk
    ```
-  `.envrc` (via `use flake` + nix-direnv) already sets `SV_SMAPI_LAUNCH_CMD`
-  and `LECHONK_DEBUG_PORT`. `systemctl --user start|stop|kill lechonk` is the
-  interface. The model vars (`LECHONK_BASE_URL` / `LECHONK_MODEL` /
-  `LECHONK_API_KEY`) are deliberately still unset — the model loop is the next
-  build.
+  `.envrc` (via `use flake` + nix-direnv) already sets `SV_SMAPI_LAUNCH_CMD`,
+  `LECHONK_DEBUG_PORT`, and the model vars (`LECHONK_BASE_URL`,
+  `LECHONK_MODEL`, `LECHONK_API_KEY`). `systemctl --user start|stop|kill lechonk`
+  is the interface.
 
 Endpoints, once the game is up:
 
@@ -84,40 +83,39 @@ TUI).
 
 ## Architecture
 
-Three processes, two network hops, one tool:
+Three processes, two network hops, three tools:
 
 ```
 ┌────────────────────────┐        ┌─────────────────────────────┐
 │  Go harness (TUI)      │        │  Stardew Valley + SMAPI mod │
 │                        │        │                             │
-│  • Mistral API loop    │  HTTP  │  • MoonSharp Lua sandbox    │
-│  • context mgmt,       │◄─────►│  • HTTP server:             │
-│    prompt caching,     │        │    POST /script, GET /api   │
-│    compaction          │        │  • coroutine script exec    │
-│  • launches game       │        │  • tick budget, cancel on   │
-│    (parent process)    │        │    connection close         │
-│  • meta controls       │        │  • documented Bot API       │
+│  • model loop + tools  │  HTTP  │  • MoonSharp Lua sandbox    │
+│  • transcript + log    │◄─────►│  • HTTP server:             │
+│  • game child (parent) │        │    POST /script, GET /api   │
+│  • debug HTTP, shutdown│        │  • coroutine script exec    │
 └───────────┬────────────┘        └─────────────────────────────┘
             │
             ▼
-   Mistral Large 4 Preview (API, tool calls)
+   Qwen3.8-27B (local ninfer, OpenAI-compat, tool calls)
 ```
 
-- **Harness (Go + Bubble Tea):** owns the Mistral conversation — system prompt, tool
-  definitions, per-turn UTC header, prompt-cache key, compaction — and the meta controls
-  (launch game, stop run, inspect context). Spawns the game as a child process and
-  manages graceful shutdown.
+- **Harness (Go + Bubble Tea):** owns the model conversation — system prompt, tool
+  definitions, the think→tool→observe loop, reasoning capture — and the meta
+  controls (launch game, stop run, debug HTTP). Spawns the game as a child process
+  and manages shutdown.
 - **Mod (C# / SMAPI):** the body. Exposes a documented game API to the sandbox and runs
   agent-written Lua scripts as coroutines over live game ticks.
-- **Agent (Mistral Large 4):** writes one small script per goal (`plow a field`,
-  `walk to town`), waits for the result, thinks again. Goals live in context for
-  now; a resume checkpoint comes later.
+- **Agent (Le Chonk, the model):** writes one small script per goal (`plow a
+  field`, `walk to town`), waits for the result, thinks again. Goals live in
+  context for now; a resume checkpoint comes later.
 
 ### Design decisions
 
-- **One tool: `run_script`.** The mod's entire surface is `POST /script`
-  (`{ result, error, ticksUsed, evt }`) and `GET /api` (API schema).
-  No abort endpoint, no status endpoint, no script registry.
+- **Two mod endpoints, three harness tools.** The mod's entire surface is
+  `POST /script` (`{ result, error, ticksUsed, evt }`) and `GET /api` (API
+  schema). The harness exposes three tools over it: `run_script`,
+  `launch_game`, `read_script_api`. No abort endpoint, no status endpoint,
+  no script registry.
 - **Synchronous to the agent, coroutines underneath.** `POST /script` blocks the
   HTTP connection until the Lua coroutine finishes (or hits the tick budget) and
   writes the result back in the same response. Inside the mod the script yields
@@ -128,13 +126,14 @@ Three processes, two network hops, one tool:
   is the run's lifetime handle).
 - **Sandbox with no OS access.** MoonSharp runs stripped of `io`/`os`; scripts can only
   call the exposed Bot API. The API whitelist *is* the security boundary.
-- **Prompt cache discipline.** Stable prefix (system prompt → tools →
+- **Prompt cache discipline (planned).** Stable prefix (system prompt → tools →
   append-only turns), volatile data rides in the last message, one
   `prompt_cache_key` per run. Compaction fires near a tunable max context length and
   at day boundaries; the day summary carries the current goals forward so
   compaction stays lossless.
-- **Graceful shutdown.** Harness exit → final agent turn ("save and quit"; going to bed
-  is the save) → bounded wait → SIGTERM → SIGKILL.
+- **Graceful shutdown.** Harness exit (signal or `q`) → stop the model loop →
+  reap the game process tree (SIGTERM, then SIGKILL for survivors). Killing the
+  harness cgroup always takes the game down with it.
 
 ### Persistence
 
@@ -184,11 +183,13 @@ Lua scripts see a `bot` table:
   synthetic input, save load/exit, wake-up, state queries, menu/dialogue
   navigation. Tested end to end, driven over the mod's HTTP API: load a save, wake, walk the farmer, open the
   TV channel menu.
-- [ ] **Phase 2 — The brain.** Go/TUI harness: an OpenAI-compatible model loop
-  (`run_script`, `launch_game`, `read_script_api`), live thought transcript,
-  prompt cache key, compaction, UTC header. The game runs as a child of the
-  harness (kill the harness = kill the game). Full plan: **`PLAN-PHASE2.md`**.
-  Target: the model walks the farmer by itself, unaided.
+- [~] **Phase 2 — The brain.** Go/TUI harness. Built: OpenAI-compatible model
+  client (non-streaming, tool calls), the three tools (`run_script`,
+  `launch_game`, `read_script_api`), the think→tool→observe loop, live thought
+  transcript (TUI + `/tmp/lechonk-transcript.log`), the game as a child process
+  (kill the harness = kill the game), debug HTTP. Remaining: streaming, prompt-
+  cache key, compaction, UTC header, systemd unit. Full plan:
+  **`PLAN-PHASE2.md`**. Target: the model walks the farmer by itself, unaided.
 - [ ] **Phase 3 — The farmer.** Bot API surface grows (tools, inventory, dialogue,
   beds, shops); recipes in `GET /api`; tune the model until a full in-game day plays
   sensibly end to end.
@@ -203,7 +204,7 @@ Lua scripts see a `bot` table:
 ```
 PLAN-PHASE2.md  build-out plan for the harness (the brain)
 flake.nix  devShell (Go + .NET SDK); Go module at the repo root (cmd/harness)
-cmd/harness/  Go + Bubble Tea TUI (built) — owns the game as a child process; model loop next
+cmd/harness/  Go + Bubble Tea TUI + model loop (built) — owns the game as a child process
 mod/Lechonk  C# SMAPI mod: HTTP server, Lua sandbox, Bot API
 .pi/skills/screenshot-game  pi skill: capture the game window to /tmp for reading
 .pi/skills/manage-game  pi skill: launch/stop/status the game (phase 1; the harness owns the game from phase 2)
