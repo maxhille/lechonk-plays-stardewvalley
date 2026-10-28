@@ -264,8 +264,8 @@ func (m *modelState) tools() []Tool {
 		{Type: "function", Function: ToolFunctionDef{
 			Name: "run_script",
 			Description: "Run a Lua script against the bot API and get its result. It runs as a coroutine " +
-				"over live game ticks and blocks until done. Pass the code in the lua field (max 1024 bytes).",
-			Parameters: json.RawMessage(`{"type":"object","properties":{"lua":{"type":"string","description":"Lua code, e.g. bot.moveUp(10) or return bot.getTime() (max 1024 bytes)"}},"required":["lua"]}`),
+				"over live game ticks and blocks until done. Pass the code in the lua field (up to 1024 characters).",
+			Parameters: json.RawMessage(`{"type":"object","properties":{"lua":{"type":"string","description":"Lua code, up to 1024 characters. Write a small program, e.g. bot.moveUp(20); local p=bot.getPosition() return p — not just a single call."}},"required":["lua"]}`),
 		}},
 	}
 }
@@ -475,7 +475,8 @@ Tools
   optional.
 - run_script(lua): runs a Lua script against the bot API, synchronously. It blocks
   until the script finishes (or hits the tick budget) and hands back:
-  {"result","error","ticksUsed","evt"}. Keep the script under 1024 bytes.
+  {"result","error","ticksUsed","evt"}. A script can be up to 1024 characters
+  long — use the budget.
     * evt "completed": the script did what it asked.
     * evt "stuck": it hit the tick budget — you are blocked or going too far.
       Re-plan: check state, take a smaller step, or move. Do not just retry.
@@ -499,6 +500,7 @@ Lua (bot) basics — you see a bot table:
 - bot.listNpcs(), bot.listAnimals()   who and what is in this location {name, x, y}
 - bot.getEnergy()                     your stamina {current, max}
 - bot.getInventory()                  what you are holding
+- bot.selectTool(name)               put the named item/tool in your hand (e.g. 'Hoe', 'Watering Can')
 - bot.getMenuType(), bot.getMenuButtons()   what menu/dialogue is open
   (getMenuButtons lists each button and its label; the label is what the user
   reads on a DialogueBox menu)
@@ -507,8 +509,12 @@ Lua (bot) basics — you see a bot table:
 - bot.listSaves(), bot.loadGame(slot), bot.exitToTitle()  saves
 - bot.waitForWorldReady()             wait until the world is loaded
 
-Write small, focused scripts — one action at a time. To learn something, observe
-first (e.g. return bot.getTime(), bot.getPosition()), then act.
+Write real little programs, not single calls. A script is up to 1024 characters
+of Lua — chain several bot actions in one script and use real Lua (local
+variables, for-loops, if/else). E.g. one script can move in a burst, re-check
+bot.getPosition(), then act — instead of one call per turn. Still keep each
+script bounded so it cannot overshoot or get stuck; observe first when the
+state is unknown (e.g. return bot.getPosition()).
 
 Lua pitfalls (the interpreter is MoonSharp, not standard Lua):
 - Never put a number literal between two .. concatenators: x..17..y is a

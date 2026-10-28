@@ -73,6 +73,30 @@ public class BotApi
         return $"error: unknown button '{name}' (gamepad only: A, B, X, Y, Start, Back, LT, RT, LB, RB, LeftThumbstick*, RightThumbstick*)";
     }
 
+    /// <summary>Select the hotbar slot holding the item or tool with the given
+    /// name (case-insensitive) — the direct equivalent of cycling with LT/RT.
+    /// Selects a slot you already hold; it grants nothing.</summary>
+    public object? SelectTool(object? name)
+    {
+        var want = name?.ToString();
+        if (string.IsNullOrEmpty(want))
+            return "error: no item name given";
+
+        var items = Game1.player.Items;
+        for (int i = 0; i < items.Count; i++)
+        {
+            var item = items[i];
+            if (item == null) continue;
+            if (string.Equals(item.Name, want, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(item.DisplayName, want, StringComparison.OrdinalIgnoreCase))
+            {
+                Game1.player.CurrentToolIndex = i;
+                return $"selected {item.DisplayName}";
+            }
+        }
+        return $"error: '{want}' is not in your inventory (see bot.getInventory)";
+    }
+
     /// <summary>Debug: list furniture in the current location as {name, tile, isBed}.</summary>
     public object? ListFurniture()
     {
@@ -570,6 +594,7 @@ public class BotApi
                 new { name = "bot.listTerrainFeatures()", description = "List every terrain feature in the current location as {name, x, y}: trees (Tree/FruitTree), weeds, stones, twigs, grass, bushes, hoe-dirt. HoeDirt entries also carry watered, and when a crop is planted: crop (name) and ready (can be harvested)." },
                 new { name = "bot.getEnergy()", description = "Your stamina as {current, max}. When it runs low you tire: eat a meal or go to bed." },
                 new { name = "bot.getInventory()", description = "List of {name, count, id} for inventory items." },
+                new { name = "bot.selectTool(name)", description = "Select the hotbar slot holding the item/tool with this name (case-insensitive), e.g. 'Hoe' or 'Watering Can'. Direct equivalent of LT/RT cycling. Returns 'selected <name>' or an error if not held." },
                 new { name = "bot.listFurniture()", description = "All furniture in the current location: {name, type, x, y, w, h, isBed}. w/h are its size in tiles, so you know how many tiles it blocks (a 2x2 TV blocks four tiles)." },
                 new { name = "bot.getWarps()", description = "All warp points (doors/exits) in the current location: {x, y, target, targetX, targetY}. Walk onto a warp tile to travel there." },
                 new { name = "bot.listNpcs()", description = "Every NPC currently in the location: {name, x, y}." },

@@ -192,7 +192,7 @@ curl -s -X POST http://127.0.0.1:17642/script \
   -d 'return bot.getPosition()'
 ```
 No JSON wrapper, no `scriptId`. Bodies are capped at 1024 bytes (a `413` above
-that) — one action at a time. The response is written back on the same connection after
+that) — a full Lua script, not a single call. The response is written back on the same connection after
 the coroutine finishes: a `200` with `{ result, error, ticksUsed, evt }`.
 No `GET /status`, no polling.
 
@@ -202,6 +202,11 @@ Lua scripts see a `bot` table:
   `bot.moveLeft(ticks)` — hold the LEFT thumbstick for `ticks` input ticks.
   The game runs in gamepad mode; the controller is the sole input source.
   Movement stops automatically when a script ends.
+- **Input:** `bot.tap(name)` — tap a gamepad button (A = action/select/confirm,
+  X = use tool, B = close menu, Start = menu, Y = craft, Back = journal,
+  LT/RT = cycle hotbar item, LB/RB = shift hotbar). `bot.cursorUp/Down/Left/Right(ticks)`
+  — hold the RIGHT thumbstick (the cursor; scrolls in menus).
+  `bot.selectTool(name)` — put the named item/tool in your hand (e.g. `Hoe`).
 - **Saves:** `bot.listSaves()`, `bot.loadGame(slotName)` (from the title screen,
   skips character creation), `bot.exitToTitle()`.
 - **State:** `bot.getPosition()`, `bot.isTilePassable(x, y)`, `bot.getTileObject(x, y)`,
