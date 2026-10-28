@@ -477,7 +477,9 @@ Tools
 
 Lua (bot) basics — you see a bot table:
 - bot.moveUp(ticks), bot.moveRight(ticks), bot.moveDown(ticks), bot.moveLeft(ticks)
-  (movement stops automatically when a script ends)
+  (movement stops automatically when a script ends; ~10-16 ticks per tile)
+- bot.walkTo(x, y)                   walk toward a tile; returns your final
+  {x, y}, which may be short if the path is blocked
 - bot.getTime(), bot.getDate()        the in-game clock / date
 - bot.getPosition()                   where you are (x, y)
 - bot.isWalkable(x,y), bot.getTileObject(x,y)   probe the map
@@ -492,6 +494,14 @@ Lua (bot) basics — you see a bot table:
 
 Write small, focused scripts — one action at a time. To learn something, observe
 first (e.g. return bot.getTime(), bot.getPosition()), then act.
+
+Lua pitfalls (the interpreter is MoonSharp, not standard Lua):
+- Never put a number literal between two .. concatenators: x..17..y is a
+  parse error. Write x..tostring(17)..y or x..'17'..y instead.
+
+Navigation: prefer bot.walkTo(x, y) over raw move* calls. If you fall short of
+the target, a tile ahead is blocked — probe it with getTileObject(x, y) (weeds,
+stones, twigs and trees all block) and route around.
 
 Rules
 - The game is single-player on a gamepad. You drive it.

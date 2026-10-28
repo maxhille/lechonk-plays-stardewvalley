@@ -158,6 +158,28 @@ public class ScriptController
                         coroutine.yield()
                     end
                 end
+
+                -- Walk toward (tx, ty) in small steps, always moving the longer
+                -- axis first. Returns your final {x, y} — it may fall short of
+                -- the target if something blocks the path.
+                function bot.walkTo(tx, ty)
+                    for i = 1, 60 do
+                        local p = bot.getPosition()
+                        local dx = tx - p.x
+                        local dy = ty - p.y
+                        if dx == 0 and dy == 0 then return p end
+                        local fn
+                        if math.abs(dx) >= math.abs(dy) then
+                            fn = dx > 0 and bot.moveRight or bot.moveLeft
+                        else
+                            fn = dy > 0 and bot.moveDown or bot.moveUp
+                        end
+                        fn(15)
+                        local q = bot.getPosition()
+                        if q.x == p.x and q.y == p.y then return q end -- blocked
+                    end
+                    return bot.getPosition()
+                end
             ";
             script.DoString(prelude);
 
