@@ -111,6 +111,7 @@ public class ScriptController
             botTable["getEnergy"] = (Func<object?>)(() => _botApi.GetEnergy());
             botTable["getPosition"] = (Func<object?>)(() => _botApi.GetPosition());
             botTable["getInventory"] = (Func<object?>)(() => _botApi.GetInventory());
+            botTable["selectTool"] = (Func<object?, object?>)(name => _botApi.SelectTool(name));
             botTable["getTime"] = (Func<object?>)(() => _botApi.GetTime());
             botTable["getDate"] = (Func<object?>)(() => _botApi.GetDate());
             botTable["listSaves"] = (Func<object?>)(() => _botApi.ListSaves());

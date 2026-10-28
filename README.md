@@ -211,8 +211,9 @@ Lua scripts see a `bot` table:
   skips character creation), `bot.exitToTitle()`.
 - **State:** `bot.getPosition()`, `bot.isTilePassable(x, y)`, `bot.getTileObject(x, y)`,
   `bot.getEnergy()`, `bot.getInventory()`, `bot.getTime()`, `bot.getDate()`, `bot.wait(ticks)`.
-- **Location:** `bot.listObjects()` (placed objects), `bot.listTerrainFeatures()`
-  (trees, weeds, stones, hoe-dirt — with `watered`/`crop`/`ready` for planted dirt),
+- **Location:** `bot.listObjects()` (placed objects, incl. ground debris
+  Stone/Weeds/Twig), `bot.listTerrainFeatures()`
+  (trees, grass, bushes, hoe-dirt — with `watered`/`crop`/`ready` for planted dirt),
   `bot.listFurniture()`, `bot.getWarps()` (doors/exits), `bot.listNpcs()`,
   `bot.listAnimals()`.
 - **Menus/dialogue:** `bot.getMenuType()` (type, buttonCount, **text** — the
