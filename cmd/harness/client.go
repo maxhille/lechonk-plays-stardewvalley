@@ -92,8 +92,9 @@ type Choice struct {
 }
 
 type Usage struct {
-	Prompt     int `json:"prompt"`
-	Completion int `json:"completion"`
+	Prompt     int `json:"prompt_tokens"`
+	Completion int `json:"completion_tokens"`
+	Total      int `json:"total_tokens"`
 }
 
 // promptCacheKey is sent with every request so an endpoint that supports

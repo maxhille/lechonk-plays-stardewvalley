@@ -104,6 +104,8 @@ public class ScriptController
             botTable["getMapSchema"] = (Func<object?>)(() => _botApi.GetMapSchema());
             botTable["isWalkable"] = (Func<object?, object?, object?>)((x, y) => _botApi.IsWalkable(x, y));
             botTable["getTileObject"] = (Func<object?, object?, object?>)((x, y) => _botApi.GetTileObject(x, y));
+            botTable["listObjects"] = (Func<object?>)(() => _botApi.ListObjects());
+            botTable["getEnergy"] = (Func<object?>)(() => _botApi.GetEnergy());
             botTable["getPosition"] = (Func<object?>)(() => _botApi.GetPosition());
             botTable["getInventory"] = (Func<object?>)(() => _botApi.GetInventory());
             botTable["getTime"] = (Func<object?>)(() => _botApi.GetTime());

@@ -48,14 +48,19 @@ public class BotApi
         {
             var result = new List<object>();
             foreach (var f in Game1.currentLocation.furniture)
+            {
+                var box = f.GetBoundingBoxAt((int)f.TileLocation.X, (int)f.TileLocation.Y);
                 result.Add(new Dictionary<string, object?>
                 {
                     ["name"] = f.Name,
                     ["type"] = f.GetType().Name,
                     ["x"] = f.TileLocation.X,
                     ["y"] = f.TileLocation.Y,
+                    ["w"] = Math.Max(1, box.Width / 64),
+                    ["h"] = Math.Max(1, box.Height / 64),
                     ["isBed"] = f is BedFurniture,
                 });
+            }
             return result.ToArray();
         }
         catch (Exception ex)
@@ -160,8 +165,8 @@ public class BotApi
             // not objects — check that too.
             if (location.terrainFeatures.TryGetValue(new Vector2(tx, ty), out var tf) && tf != null)
             {
-                string name = tf is StardewValley.TerrainFeatures.Tree tree ? (tree.TextureName ?? "Tree") : tf.GetType().Name;
-                return new Dictionary<string, object> { ["name"] = name, ["type"] = tf.GetType().Name };
+                string name = tf.GetType().Name; // Tree, FruitTree, HoeDirt, Bush, Grass, ...
+                return new Dictionary<string, object> { ["name"] = name, ["type"] = name };
             }
             return null;
         }
@@ -170,6 +175,35 @@ public class BotApi
             _monitor.Log($"getTileObject failed: {ex}", LogLevel.Warn);
             return "error: " + ex.Message;
         }
+    }
+
+    /// <summary>List every object on the floor of the current location: {name, x, y}.</summary>
+    public object? ListObjects()
+    {
+        var loc = Game1.currentLocation;
+        var items = new List<object>();
+        foreach (var kv in loc.objects.Pairs)
+        {
+            if (kv.Value == null) continue;
+            items.Add(new Dictionary<string, object>
+            {
+                ["name"] = kv.Value.Name,
+                ["x"] = (int)kv.Key.X,
+                ["y"] = (int)kv.Key.Y,
+            });
+        }
+        return items;
+    }
+
+    /// <summary>Your stamina: {current, max}.</summary>
+    public object? GetEnergy()
+    {
+        var f = Game1.player;
+        return new Dictionary<string, object>
+        {
+            ["current"] = (int)f.stamina,
+            ["max"] = (int)f.maxStamina.Value,
+        };
     }
 
     /// <summary>Return the player's inventory as a list of {name, count, id}.</summary>
@@ -459,8 +493,10 @@ public class BotApi
                 new { name = "bot.getMapSchema()", description = "Map schema for the current location: { location, width, height, player {x, y}, walkable (array of row strings; row i+1 is tile y=i; '.' walkable, '#' blocked), warps [{x, y, target, targetX, targetY}] }. All coordinates are 0-indexed tiles." },
                 new { name = "bot.isWalkable(x, y)", description = "Check if tile (x, y) is walkable." },
                 new { name = "bot.getTileObject(x, y)", description = "Get the object or terrain feature at tile (x, y) — placed objects, plus trees, hoe-dirt, bushes and grass — or null." },
+                new { name = "bot.listObjects()", description = "List every object on the floor of the current location as {name, x, y} — items (including gifts), stones, weeds, twigs." },
+                new { name = "bot.getEnergy()", description = "Your stamina as {current, max}. When it runs low you tire: eat a meal or go to bed." },
                 new { name = "bot.getInventory()", description = "List of {name, count, id} for inventory items." },
-                new { name = "bot.listFurniture()", description = "All furniture in the current location: {name, x, y}." },
+                new { name = "bot.listFurniture()", description = "All furniture in the current location: {name, type, x, y, w, h, isBed}. w/h are its size in tiles, so you know how many tiles it blocks (a 2x2 TV blocks four tiles)." },
                 new { name = "bot.getTime()", description = "Current in-game time {hour, minute}. The clock runs 06:00-26:00, so early morning hours can be 24 or 25." },
                 new { name = "bot.getDate()", description = "Return {season, day}." },
                 new { name = "bot.getMenuType()", description = "Info about the active menu or the emote wheel (type \"EmoteMenu\"), or null." },

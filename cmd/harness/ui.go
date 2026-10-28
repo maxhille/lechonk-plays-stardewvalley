@@ -359,7 +359,23 @@ func statusLine(s GameStatus, ms *modelState, gm *GameManager, paused bool) stri
 	if ms != nil && ms.Running() {
 		lc = "ON"
 	}
-	return base + "   Le Chonk: " + lc
+	return base + "   Le Chonk: " + lc + ctxSuffix(ms)
+}
+
+// ctxSuffix shows the size of the model's last prompt, so you can feel how
+// big the conversation is getting.
+func ctxSuffix(ms *modelState) string {
+	if ms == nil {
+		return ""
+	}
+	t := ms.CtxTokens()
+	if t <= 0 {
+		return ""
+	}
+	if t >= 1000 {
+		return fmt.Sprintf("   ctx: %.1fk tok", float64(t)/1000)
+	}
+	return fmt.Sprintf("   ctx: %d tok", t)
 }
 
 // plainView is the compact pre-full-screen layout, used when the terminal is

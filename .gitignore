@@ -4,6 +4,7 @@ mod/**/obj/
 
 # Go build artifacts (module root; main binary at ./lechonk)
 lechonk
+harness
 cmd/harness/lechonk
 
 # direnv env (local, per-machine — the .envrc is never committed)

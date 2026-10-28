@@ -52,6 +52,7 @@ type modelState struct {
 	cancel  context.CancelFunc
 	logPath string
 	logFile *os.File
+	ctxTokens atomic.Int64 // prompt tokens of the last model request
 }
 
 func newModelState(client *ModelClient, gm *GameManager, gc *gameController, events chan thoughtEvent) *modelState {
@@ -64,6 +65,11 @@ func newModelState(client *ModelClient, gm *GameManager, gc *gameController, eve
 		http:    &http.Client{Timeout: 10 * time.Minute}, // long: run_script blocks on the tick budget
 		logPath: "/tmp/lechonk-transcript.log",
 	}
+}
+
+// CtxTokens returns the prompt token count of the last model request (0 if unknown).
+func (m *modelState) CtxTokens() int64 {
+	return m.ctxTokens.Load()
 }
 
 func (m *modelState) Running() bool { return m.running.Load() }
@@ -97,7 +103,7 @@ func (m *modelState) emit(ev thoughtEvent) {
 	line := fmt.Sprintf("[%s][turn %d] %-8s %s\n",
 		time.Now().Format("15:04:05"), ev.Turn, kindLabel(ev.Kind), ev.Text)
 	if m.logFile == nil {
-		if f, err := os.OpenFile(m.logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644); err == nil {
+		if f, err := os.OpenFile(m.logPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0644); err == nil {
 			m.logFile = f
 		}
 	}
@@ -176,6 +182,7 @@ func (m *modelState) loop() {
 			continue
 		}
 		msg := resp.Choices[0].Message
+		m.ctxTokens.Store(int64(resp.Usage.Prompt))
 		messages = append(messages, msg)
 
 		// Show him as a thought. This model does its real thinking in a hidden
@@ -481,6 +488,8 @@ Lua (bot) basics — you see a bot table:
 - bot.getTime(), bot.getDate()        the in-game clock / date
 - bot.getPosition()                   where you are (x, y)
 - bot.isWalkable(x,y), bot.getTileObject(x,y)   probe the map
+- bot.listObjects()                   what is on the floor of this location (gifts, stones, weeds...)
+- bot.getEnergy()                     your stamina {current, max}
 - bot.getInventory()                  what you are holding
 - bot.getMenuType(), bot.getMenuButtons()   what menu/dialogue is open
   (getMenuButtons lists each button and its label; the label is what the user
@@ -507,6 +516,8 @@ Rules
 - If a run_script keeps coming back "stuck", the situation is wrong — change the
   plan (move, reload, close a menu) rather than retrying the same script.
 - Keep thinking concise. Act.
+- Watch your energy (bot.getEnergy()): when it runs low, eat a meal or go to
+  bed — passing out in the middle of the day is a failure.
 - Saying DONE ends the whole run — see the Goal below.
 
 Goal: get the farm running
@@ -532,6 +543,7 @@ Only start playing once the world is ready.
 Begin: launch the game, load your save, and read the API.
 On your first day you wake up in your house. Explore it before you leave:
 read the map (bot.getMapSchema()), list the furniture (bot.listFurniture()),
-and find the bed (that is where you sleep), the TV, and the door to the farm.
+check the floor for items (bot.listObjects()), and find the bed (that is where
+you sleep), the TV, and the door to the farm.
 Do not leave the house until you have done this. Then go outside and get to work.
 `
