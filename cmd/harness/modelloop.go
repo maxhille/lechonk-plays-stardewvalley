@@ -12,6 +12,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode"
 )
 
 // thoughtEventKind tags one line the TUI transcript appends for the model loop.
@@ -174,7 +175,7 @@ func (m *modelState) loop() {
 			messages = append(messages, ChatMessage{
 				Role: "user",
 				Content: "The model call failed: " + err.Error() +
-					"\nTry a different, simpler action. (You can also say DONE to end the day.)",
+					"\nTry a different, simpler action. (You can also end the run by replying with exactly the word DONE.)",
 			})
 			select {
 			case <-m.ctx.Done():
@@ -208,7 +209,7 @@ func (m *modelState) loop() {
 		if len(msg.ToolCalls) == 0 {
 			messages = append(messages, ChatMessage{
 				Role:    "user",
-				Content: "Keep going. Take an action with a tool, or say DONE when the day is finished.",
+				Content: "Keep going. Take an action with a tool, or end the run only by replying with exactly the word DONE.",
 			})
 			continue
 		}
@@ -238,7 +239,7 @@ func (m *modelState) seedMessages() []ChatMessage {
 			"you), then wait for the world to be ready (bot.waitForWorldReady()), call " +
 			"read_script_api to see your tools, and begin playing your day one action at " +
 			"a time — first explore the house you wake up in (the bed, the TV, the door) " +
-			"before you leave it. Say DONE when I tell you to stop."},
+			"before you leave it. End the run only by replying with exactly the word DONE, and only when told to stop."},
 	}
 }
 
@@ -399,7 +400,15 @@ func (m *modelState) doHTTP(req *http.Request) (string, error) {
 }
 
 func isDone(content string) bool {
-	return strings.Contains(strings.ToUpper(strings.TrimSpace(content)), "DONE")
+	// The reply must BE the word DONE (optionally with trailing punctuation),
+	// not merely contain it: "TV done", "day done", "chest done" are status
+	// narration, not the quit signal. A substring match killed a run mid-plan
+	// ("TV done — tomorrow will be partly cloudy…").
+	s := strings.ToUpper(strings.TrimSpace(content))
+	if s == "DONE" {
+		return true
+	}
+	return strings.HasPrefix(s, "DONE") && len(s) > 4 && !unicode.IsLetter(rune(s[4])) && !unicode.IsDigit(rune(s[4]))
 }
 
 // prettyResult formats a tool result for display: valid JSON is pretty-printed
@@ -476,7 +485,9 @@ How you act
 Each turn you do one of:
 - Think: reply with a short plain-text thought of what you are considering.
 - Act: call a tool to do something in the game.
-- Say DONE: only when you are told to stop. Replying DONE ends your run.
+- Say DONE: only when you are told to stop. The run only ends when your
+  whole reply is exactly the word DONE — "TV done" or "chore done" inside a
+  longer sentence is a status update, not the quit signal.
 
 Prefer acting. If you only think and never act, you accomplish nothing, and the
 harness will keep nudging you to act.
@@ -585,16 +596,28 @@ Rules
   bed — passing out in the middle of the day is a failure.
 - Saying DONE ends the whole run — see the Goal below.
 
-Goal: get the farm running
-Turn the farm into a productive operation. Work toward it every day:
-- clear weeds, stones and twigs; chop trees; dig up artifact spots
-- till soil, plant seeds, and water your crops each morning
-- walk to town (bus stop) to buy seeds and supplies at Pierre's shop and
-  sell what you have gathered
-- forage for seasonal plants; mine in the caves for ore
-- when you have money, expand: buy animals and farm buildings
-At night, go to bed — the game advances to the next day and you keep working.
-A night of sleep is NOT DONE.
+Goals — pick which to work on and how; both are standing, neither expires:
+
+  Plant seeds. Get a crop growing on your farm. Your tools: selectTool('Hoe')
+  tills dirt, tap A plants a seed onto tilled ground from your inventory,
+  selectTool('Watering Can') + tap X waters (refill at the farm pond). You
+  may find seeds in a chest at home, by foraging, or in town at Pierre's
+  shop — the game shows you the way.
+
+  Meet the villagers. Stardew is not only farming — walk to town and talk to
+  people. You meet someone by standing next to them and tapping A; a dialogue
+  tells you who they are and what they want. Villagers move around during the
+  day, so track them with bot.listNpcs(). Make at least one new acquaintance.
+
+Pursue whichever goal you like — switch between them, do one today and the
+other tomorrow, or both in one day. Clearing blockers and foraging on the way
+counts toward both. How you do it is your choice — this is your farm and your
+village.
+
+At night, go to bed (face the bed, tap A) — the game advances to the next
+day and you keep working. A night of sleep is NOT DONE. You are NEVER done:
+there is always more to do tomorrow. DONE only when the user explicitly
+tells you.
 
 Your name is Le Chonk. launch_game brings the game up but it sits at the title
 screen — the world is NOT ready yet. Once the game is up, find your save slot:

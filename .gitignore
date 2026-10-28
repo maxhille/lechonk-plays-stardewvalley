@@ -2,9 +2,12 @@
 mod/**/bin/
 mod/**/obj/
 
-# Go build artifacts (module root; main binary at ./lechonk)
-lechonk
-harness
+# Go build artifacts (module root; main binary at ./lechonk).
+# Anchored so the harness/ and cmd/harness/ SOURCE directories are not
+# caught by the old bare "harness" pattern (it matched every path whose
+# component was named harness, silently ignoring new files in cmd/harness/).
+/lechonk
+/harness
 cmd/harness/lechonk
 
 # direnv env (local, per-machine — the .envrc is never committed)
