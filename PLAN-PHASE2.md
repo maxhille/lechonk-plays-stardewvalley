@@ -54,6 +54,9 @@ the game. Mod reload = rebuild (auto-deploys the DLL) →
   `cmd.Wait()` in a monitor goroutine (no polling); ad-hoc run via
   `systemd-run --user --unit=lechonk`.
 - Debug HTTP on `127.0.0.1:17643`: `GET /status`, `POST /launch /stop /restart`.
+- Headless mode: with no TTY (or `LECHONK_HEADLESS=1`) the harness skips the
+  TUI, auto-starts Le Chonk, and blocks until SIGTERM — the transcript log
+  and the debug endpoint stay the way to watch him.
 - Mod build/redeploy loop verified (`dotnet build` auto-deploys the DLL).
 - Model client: OpenAI-compat, non-streaming, tool-call parsing, env config
   (`LECHONK_BASE_URL` / `LECHONK_MODEL` / `LECHONK_API_KEY`), pointed at
@@ -72,7 +75,6 @@ the game. Mod reload = rebuild (auto-deploys the DLL) →
 - Fake OpenAI-compat echo endpoint for zero-token harness testing.
 - Top status bar (model / endpoint / in-game time / day).
 - Flake `buildGoApplication` package (unverified recipe).
-- A `lechonk` systemd unit file (currently ad-hoc `systemd-run`).
 
 ## The flake — module root is the repo
 
@@ -163,24 +165,22 @@ hard path is safe too.
 | `LECHONK_AUTO_START` | launch + load on start | off |
 | `LECHONK_TICK_BUDGET` | override mod tick cap | mod default |
 
-## Systemd — the harness unit
+## Systemd — running the harness unattended
 
-The harness is a **user systemd unit** `lechonk`. Killing it reaps the cgroup,
-so the game dies with it — this is the guarantee that a separate unit (which
+The harness runs as a **transient user unit** via `systemd-run` (no static
+unit file in `~/.config/systemd/user/`). Killing it reaps the cgroup, so the
+game dies with it — this is the guarantee that a separate unit (which
 `kill -9` on the harness would *not* take down) cannot give us.
 
-Ad-hoc (matches how the game is run):
-
 ```bash
-systemd-run --user --unit=lechonk --working-directory="$REPO" \
-  bash -c 'export DISPLAY=:0 XDG_RUNTIME_DIR=/run/user/10000 \
-    SV_SMAPI_LAUNCH_CMD="..." LECHONK_BASE_URL=... LECHONK_API_KEY=...; \
-    <path to lechonk binary>'
+systemd-run --user --unit=lechonk --working-directory="$REPO" ./lechonk
+systemctl --user stop lechonk   # stop; the game child dies with it
 ```
 
-Or a tiny `~/.config/systemd/user/lechonk.service` with `ExecStart` /
-`WorkingDirectory` / `Environment=` (cleaner for the config vars). `systemctl
---user start|stop|kill lechonk` is the interface.
+With no TTY the harness runs **headless**: no TUI, Le Chonk starts
+immediately, and everything lands in `/tmp/lechonk-transcript.log` (force it
+with `LECHONK_HEADLESS=1`). The client's built-in defaults match `.envrc`, so
+no env forwarding is needed.
 
 ## Build order
 
@@ -198,8 +198,8 @@ Or a tiny `~/.config/systemd/user/lechonk.service` with `ExecStart` /
    thoughts panel, top status bar, "running a script…" clock.
 6. ✅ **Model loop** — system prompt, tool defs, the think→act→observe cycle,
    error recovery, `DONE`. Remaining: per-turn UTC header, compaction.
-7. ⬜ **Systemd** — `lechonk` unit; verify kill→game-dies; verify `restart`
-   reloads the mod.
+7. ✅ **Systemd** — ad-hoc `systemd-run --user --unit=lechonk` (no static unit
+   file) + headless mode for the TTY-less unit; kill→game-dies verified.
 8. ✅ **Smoke test** — Le Chonk reads the API, launches the game, finds and
    loads his save, and plays; every line in the TUI transcript and log.
 

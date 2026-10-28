@@ -62,15 +62,18 @@ Run the harness:
 - **Directly.** `./lechonk` opens a full-screen TUI. Keys: `l` launch, `s` stop,
   `r` restart, `q` quit (also reaps the game child). Run it under a real
   terminal, or `script -qc ./lechonk /tmp/lechonk.log` to log it.
-- **Via user systemd (recommended).** Keeps the harness — and thus the game — up
-  across a crash and makes kill-harness=kill-game airtight:
+- **Via user systemd (for unattended runs).** Keeps the harness — and thus
+  the game — up across a crash and makes kill-harness=kill-game airtight:
    ```bash
    systemd-run --user --unit=lechonk --working-directory="$PWD" ./lechonk
+   systemctl --user stop lechonk
    ```
-  `.envrc` (via `use flake` + nix-direnv) already sets `SV_SMAPI_LAUNCH_CMD`,
-  `LECHONK_DEBUG_PORT`, and the model vars (`LECHONK_BASE_URL`,
-  `LECHONK_MODEL`, `LECHONK_API_KEY`). `systemctl --user start|stop|kill lechonk`
-  is the interface.
+  With no TTY the harness runs **headless**: no TUI, Le Chonk starts
+  immediately, and everything lands in `/tmp/lechonk-transcript.log`
+  (force it with `LECHONK_HEADLESS=1`). `.envrc` (via `use flake` +
+  nix-direnv) already sets `SV_SMAPI_LAUNCH_CMD`, `LECHONK_DEBUG_PORT`, and
+  the model vars; the client's defaults match, so no env forwarding is
+  needed. `systemctl --user is-active lechonk` checks it.
 
 Endpoints, once the game is up:
 
@@ -187,8 +190,8 @@ Lua scripts see a `bot` table:
   client (non-streaming, tool calls), the three tools (`run_script`,
   `launch_game`, `read_script_api`), the think→tool→observe loop, live thought
   transcript (TUI + `/tmp/lechonk-transcript.log`), the game as a child process
-  (kill the harness = kill the game), debug HTTP. Remaining: streaming, prompt-
-  cache key, compaction, UTC header, systemd unit. Full plan:
+  (kill the harness = kill the game), debug HTTP, headless mode. Remaining:
+  streaming, prompt-cache key, compaction, UTC header. Full plan:
   **`PLAN-PHASE2.md`**. Target: the model walks the farmer by itself, unaided.
 - [ ] **Phase 3 — The farmer.** Bot API surface grows (tools, inventory, dialogue,
   beds, shops); recipes in `GET /api`; tune the model until a full in-game day plays

@@ -79,6 +79,16 @@ func main() {
 		os.Exit(0)
 	}()
 
+	// Headless: no TTY attached (or LECHONK_HEADLESS=1). Skip the TUI and run
+	// Le Chonk directly; the transcript log and the debug endpoint stay the
+	// way to watch him. The signal handler above stops everything and exits.
+	if os.Getenv("LECHONK_HEADLESS") == "1" || !stdoutIsTTY() {
+		fmt.Fprintf(os.Stderr, "[lechonk] headless (no TTY) — running Le Chonk; transcript at /tmp/lechonk-transcript.log\n")
+		ms.Start()
+		<-ch
+		os.Exit(0)
+	}
+
 	model := newUIModel(gm, gc, debugPort, ms, events)
 	model.addLine(fmt.Sprintf("game dir: %s", gd))
 	model.addLine(fmt.Sprintf("debug api: http://127.0.0.1:%d  (GET /status, POST /launch /stop /restart)", debugPort))
@@ -94,4 +104,13 @@ func main() {
 	ms.Stop()
 	gm.Stop()
 	ds.Stop()
+}
+
+// stdoutIsTTY reports whether stdout is attached to a terminal.
+func stdoutIsTTY() bool {
+	fi, err := os.Stdout.Stat()
+	if err != nil {
+		return false
+	}
+	return fi.Mode()&os.ModeCharDevice != 0
 }
