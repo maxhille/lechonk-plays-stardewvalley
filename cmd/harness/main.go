@@ -90,10 +90,11 @@ func main() {
 	}
 
 	model := newUIModel(gm, gc, debugPort, ms, events)
-	model.addLine(fmt.Sprintf("game dir: %s", gd))
-	model.addLine(fmt.Sprintf("debug api: http://127.0.0.1:%d  (GET /status, POST /launch /stop /restart)", debugPort))
-	model.addLine(fmt.Sprintf("model: %s   %s", client.model, client.baseURL))
-	model.addLine("transcript: /tmp/lechonk-transcript.log  (tail it while he runs)")
+	// Boot info goes to stderr — operator diagnostics, not transcript content.
+	fmt.Fprintf(os.Stderr, "[lechonk] game dir: %s\n", gd)
+	fmt.Fprintf(os.Stderr, "[lechonk] debug api: http://127.0.0.1:%d  (GET /status, POST /launch /stop /restart)\n", debugPort)
+	fmt.Fprintf(os.Stderr, "[lechonk] model: %s   %s\n", client.model, client.baseURL)
+	fmt.Fprintf(os.Stderr, "[lechonk] transcript: /tmp/lechonk-transcript.log  (tail it while he runs)\n")
 
 	p := tea.NewProgram(model, tea.WithAltScreen())
 	_, _ = p.Run()

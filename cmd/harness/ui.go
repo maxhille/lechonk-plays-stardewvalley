@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -62,11 +61,11 @@ type uiModel struct {
 	gc        *gameController
 	debugPort int
 	ms        *modelState       // the Le Chonk thinking loop
-	events    chan thoughtEvent // line events the model loop pushes into the transcript
-	lines     []string
-	mode      string // modeStreamer (default) or modeDebug — switches what View shows
-	paused    bool   // game paused via the admin /pause toggle (key p)
-	w, h      int    // terminal size, set from tea.WindowSizeMsg (sent once, then on resize)
+	events    chan thoughtEvent // raw events pushed by the model loop
+	history   []thoughtEvent    // raw events, rendered per display mode in View()
+	mode      string            // modeStreamer (default) or modeDebug
+	paused    bool              // game paused via the admin /pause toggle (key p)
+	w, h      int               // terminal size, set from tea.WindowSizeMsg
 }
 
 func newUIModel(gm *GameManager, gc *gameController, debugPort int, ms *modelState, events chan thoughtEvent) uiModel {
@@ -76,15 +75,21 @@ func newUIModel(gm *GameManager, gc *gameController, debugPort int, ms *modelSta
 		debugPort: debugPort,
 		ms:        ms,
 		events:    events,
-		lines:     []string{},
+		history:   []thoughtEvent{},
 		mode:      modeStreamer,
 	}
 }
 
+// addLine records a harness notice as an evInfo event. Shown in debug mode
+// only; streamer mode ignores it (it shows his words alone).
 func (m *uiModel) addLine(s string) {
-	m.lines = append(m.lines, s)
-	if len(m.lines) > 500 {
-		m.lines = m.lines[len(m.lines)-500:]
+	m.history = append(m.history, thoughtEvent{Kind: evInfo, Turn: 0, Text: s})
+	m.trimHistory()
+}
+
+func (m *uiModel) trimHistory() {
+	if len(m.history) > 1000 {
+		m.history = m.history[len(m.history)-1000:]
 	}
 }
 
@@ -139,38 +144,20 @@ func (m *uiModel) togglePause() {
 	}
 }
 
-// evLines turns one model-loop event into zero or more transcript lines for the
-// given display mode. Multi-line payloads (pretty-printed JSON results) split
-// into several lines so the frame wraps and pads each one.
+// evLines turns one raw event into zero or more transcript lines for the given
+// display mode. Multi-line payloads (pretty-printed JSON results) split into
+// several lines so the frame wraps and pads each one.
 //
-// Streamer mode shows only Le Chonk's words (evSay) and the session lifecycle
-// (start / stop / done). Debug mode shows the mechanical view — tool calls,
-// results, errors, harness notices, and the lifecycle — and none of his words.
-// His hidden reasoning (evThink) is never shown in the TUI (log only).
+// Streamer mode shows only his words (evSay). Debug mode shows the mechanical
+// view — tool calls, results, errors, harness notices — and NOT his words
+// (those are the streamer's lane). Hidden reasoning (evThink) is never shown.
 func evLines(ev thoughtEvent, mode string) []string {
 	streamer := mode == modeStreamer
-	switch ev.Kind {
-	case evStart, evStop, evDone:
-		// lifecycle: always shown
-	case evSay:
-		if !streamer {
-			return nil
-		}
-	case evTool, evResult, evError, evInfo:
-		if streamer {
-			return nil
-		}
-	default: // evThink and anything else: never shown in the TUI
+	if streamer != (ev.Kind == evSay) {
 		return nil
 	}
 	var lines []string
 	switch ev.Kind {
-	case evStart:
-		lines = []string{"Le Chonk is starting…"}
-	case evStop:
-		lines = []string{"Le Chonk stopped."}
-	case evDone:
-		lines = []string{"Le Chonk: DONE — day complete."}
 	case evSay:
 		lines = []string{"Le Chonk: " + ev.Text}
 	case evTool:
@@ -186,6 +173,15 @@ func evLines(ev thoughtEvent, mode string) []string {
 		lines = []string{"    ✗ error: " + ev.Text}
 	case evInfo:
 		lines = []string{"    · " + ev.Text}
+	default: // lifecycle (evStart/evStop/evDone) and evThink: debug mode only via addLine never fires them; kept for completeness
+		switch ev.Kind {
+		case evStart:
+			lines = []string{"Le Chonk is starting…"}
+		case evStop:
+			lines = []string{"Le Chonk stopped."}
+		case evDone:
+			lines = []string{"Le Chonk: DONE — day complete."}
+		}
 	}
 	if ev.Turn > 0 && len(lines) > 0 {
 		lines[0] = fmt.Sprintf("[t%d] %s", ev.Turn, lines[0])
@@ -255,43 +251,32 @@ func wrapText(s string, width int) []string {
 	return out
 }
 
-// turnOf extracts the [tN] turn tag from a transcript line (0 if absent).
-func turnOf(line string) int {
-	if !strings.HasPrefix(line, "[t") {
-		return 0
-	}
-	i := strings.Index(line, "] ")
-	if i < 3 {
-		return 0
-	}
-	n, err := strconv.Atoi(line[2:i])
-	if err != nil {
-		return 0
-	}
-	return n
-}
-
-// renderTranscript turns raw transcript lines into display lines: a divider
-// between turns, word-wrapped text, bottom-anchored to rows. Returns exactly
-// rows entries (nil when rows <= 0).
-func renderTranscript(lines []string, width, rows int) []string {
+// renderHistory turns raw events into display lines for the active mode: a
+// divider between turns, word-wrapped text, bottom-anchored to rows. Returns
+// exactly rows entries (nil when rows <= 0).
+func renderHistory(events []thoughtEvent, mode string, width, rows int) []string {
 	if rows <= 0 {
 		return nil
 	}
 	var all []string
 	lastTurn := 0
 	seenTurn := false
-	for _, line := range lines {
-		turn := turnOf(line)
-		if seenTurn && turn > lastTurn {
-			all = append(all, dividerStyle.Render(strings.Repeat("─", width)))
+	for _, ev := range events {
+		lines := evLines(ev, mode)
+		if len(lines) == 0 {
+			continue
 		}
-		if turn > 0 {
-			lastTurn = turn
+		if ev.Turn > 0 {
+			if seenTurn && ev.Turn > lastTurn {
+				all = append(all, dividerStyle.Render(strings.Repeat("─", width)))
+			}
+			lastTurn = ev.Turn
 			seenTurn = true
 		}
-		for _, wl := range wrapText(line, width) {
-			all = append(all, transcriptStyle.Render(wl))
+		for _, ln := range lines {
+			for _, wl := range wrapText(ln, width) {
+				all = append(all, transcriptStyle.Render(wl))
+			}
 		}
 	}
 	start := 0
@@ -325,12 +310,28 @@ func (m uiModel) frame() string {
 
 	s := m.gm.Status()
 	title := "Le Chonk plays Stardew Valley"
+	divider := strings.Repeat("─", insideW)
+
+	// Streamer mode is a pure chat view: the title and his words, nothing else.
+	if m.mode == modeStreamer {
+		content := make([]string, insideH)
+		content[0] = padRight(titleStyle.Render(title), insideW)
+		content[1] = dividerStyle.Render(divider)
+		rows := insideH - 2
+		if rows > 0 {
+			for i, line := range renderHistory(m.history, modeStreamer, insideW, rows) {
+				content[2+i] = line
+			}
+		}
+		return frameStyle.Render(strings.Join(content, "\n"))
+	}
+
+	// Debug mode: the full mechanical view.
 	status := statusLine(s, m.ms, m.gm, m.paused)
 	footer := fmt.Sprintf(
 		"mode: %s (d toggle)   l start   s stop   r restart   p pause   q quit   debug http://127.0.0.1:%d",
 		strings.ToUpper(m.mode), m.debugPort,
 	)
-	divider := strings.Repeat("─", insideW)
 
 	// Fixed rows: title, status, divider, footer. Everything between is the transcript.
 	transcriptRows := insideH - 4
@@ -357,7 +358,7 @@ func (m uiModel) frame() string {
 
 	// Transcript: bottom-anchored, turn-divided, word-wrapped.
 	if transcriptRows > 0 {
-		for i, line := range renderTranscript(m.lines, insideW, transcriptRows) {
+		for i, line := range renderHistory(m.history, modeDebug, insideW, transcriptRows) {
 			content[3+i] = line
 		}
 	}
@@ -430,7 +431,7 @@ func (m uiModel) plainView() string {
 		lines = append(lines, "last error: "+s.Error)
 	}
 	lines = append(lines, "")
-	lines = append(lines, renderTranscript(m.lines, 80, 12)...)
+	lines = append(lines, renderHistory(m.history, modeDebug, 80, 12)...)
 	lines = append(lines, "")
 	lines = append(lines, fmt.Sprintf("mode: %s (d)   keys: l start · s stop · r restart · p pause · q quit   (auto-refreshes ~0.2s)", strings.ToUpper(m.mode)))
 	return strings.Join(lines, "\n")
@@ -439,8 +440,8 @@ func (m uiModel) plainView() string {
 func (m uiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	mm := uiModel(m)
 
-	// Drain any model-loop events (non-blocking so we never stall the TUI).
-	// Lines are filtered by the current display mode before they're added.
+		// Drain any model-loop events (non-blocking so we never stall the TUI).
+	// Raw events go into history; View() renders them per the display mode.
 drain:
 	for {
 		select {
@@ -448,9 +449,8 @@ drain:
 			if !ok {
 				break drain
 			}
-			for _, ln := range evLines(ev, mm.mode) {
-				mm.addLine(ln)
-			}
+			mm.history = append(mm.history, ev)
+			mm.trimHistory()
 		default:
 			break drain
 		}
@@ -499,14 +499,13 @@ drain:
 			case "p":
 				mm.togglePause()
 			case "d":
-				// Toggle the transcript view. Clear the old lines so the switch is
-				// clean (the full history stays in the transcript log file).
+				// Toggle the display mode. Rendering is retroactive — history holds
+				// raw events, so the whole session re-renders in the new mode.
 				if mm.mode == modeStreamer {
 					mm.mode = modeDebug
 				} else {
 					mm.mode = modeStreamer
 				}
-				mm.lines = nil
 				mm.addLine("display mode: " + mm.mode)
 			case "?":
 				mm.addLine("keys: l start · s stop · r restart · p pause · d mode · q quit · ? help")

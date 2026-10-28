@@ -5,54 +5,52 @@ import (
 	"testing"
 )
 
-// feed runs a few model-loop events through the transcript the way Update does,
-// in the given display mode, and returns the rendered frame.
+// feed pushes raw events into a uiModel's history the way Update does and
+// returns the rendered frame for the given display mode.
 func feedEvents(mode string, evs ...thoughtEvent) string {
 	m := uiModel{gm: NewGameManager("/nonexistent/xyz-should-not-exist", 0), debugPort: 17643, w: 80, h: 24, mode: mode}
 	for _, ev := range evs {
-		for _, ln := range evLines(ev, mode) {
-			m.addLine(ln)
-		}
+		m.history = append(m.history, ev)
 	}
 	return m.frame()
 }
 
-// Streamer mode (the default) shows only Le Chonk's words and the session
-// lifecycle — never his hidden reasoning, never the tool calls or results.
+// Streamer mode shows ONLY his words — no reasoning, no tool calls, no
+// results, no lifecycle events, no harness notices.
 func TestStreamerModeShowsOnlyWords(t *testing.T) {
 	out := feedEvents(modeStreamer,
-		thoughtEvent{Kind: evStart, Turn: 0, Text: ""},
-		thoughtEvent{Kind: evSay, Turn: 1, Text: "I'll head to the TV and watch the fortune teller."},
+		thoughtEvent{Kind: evSay, Turn: 1, Text: "heading to the TV to check the weather 📺"},
 		thoughtEvent{Kind: evThink, Turn: 1, Text: "  (thinking) the TV is at (3,5)"},
 		thoughtEvent{Kind: evTool, Turn: 1, Text: "run_script(moveDown(30))"},
 		thoughtEvent{Kind: evResult, Turn: 1, Text: "{\"x\":64}"},
+		thoughtEvent{Kind: evStart, Turn: 0, Text: ""},
+		thoughtEvent{Kind: evInfo, Turn: 0, Text: "starting Le Chonk…"},
 	)
-	if !strings.Contains(out, "Le Chonk: I'll head to the TV") {
+	if !strings.Contains(out, "Le Chonk: heading to the TV") {
 		t.Errorf("streamer mode must show his words; frame=%s", stripAnsi(out))
 	}
-	if strings.Contains(out, "(thinking)") {
-		t.Errorf("streamer mode must not show reasoning; frame=%s", stripAnsi(out))
-	}
-	if strings.Contains(out, "action to game") || strings.Contains(out, "game → model") {
-		t.Errorf("streamer mode must not show tool calls/results; frame=%s", stripAnsi(out))
+	for _, leak := range []string{"(thinking)", "action to game", "game → model", "starting", "run_script"} {
+		if strings.Contains(stripAnsi(out), leak) {
+			t.Errorf("streamer mode leaked %q into the view; frame=%s", leak, stripAnsi(out))
+		}
 	}
 }
 
-// Debug mode shows the mechanical view — tool calls and results — and not his
-// words.
-func TestDebugModeShowsToolCalls(t *testing.T) {
+// Debug mode shows the mechanical view — tool calls, results, errors, harness
+// notices — and NOT his words (those are the streamer's lane).
+func TestDebugModeShowsMechanics(t *testing.T) {
 	out := feedEvents(modeDebug,
-		thoughtEvent{Kind: evSay, Turn: 1, Text: "I'll head to the TV"},
+		thoughtEvent{Kind: evSay, Turn: 1, Text: "found the chest ✨"},
 		thoughtEvent{Kind: evTool, Turn: 1, Text: "run_script(moveDown(30))"},
 		thoughtEvent{Kind: evResult, Turn: 1, Text: "{\"x\":64}"},
+		thoughtEvent{Kind: evInfo, Turn: 0, Text: "game PAUSED"},
 	)
-	if !strings.Contains(out, "→ action to game: run_script") {
-		t.Errorf("debug mode must show tool calls; frame=%s", stripAnsi(out))
+	for _, want := range []string{"→ action to game: run_script", "← game → model:", "· game PAUSED"} {
+		if !strings.Contains(stripAnsi(out), want) {
+			t.Errorf("debug mode must show %q; frame=%s", want, stripAnsi(out))
+		}
 	}
-	if !strings.Contains(out, "← game → model:") {
-		t.Errorf("debug mode must show results; frame=%s", stripAnsi(out))
-	}
-	if strings.Contains(out, "Le Chonk: I'll head to the TV") {
+	if strings.Contains(stripAnsi(out), "Le Chonk: found the chest") {
 		t.Errorf("debug mode must not show his words; frame=%s", stripAnsi(out))
 	}
 }

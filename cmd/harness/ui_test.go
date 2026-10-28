@@ -90,16 +90,15 @@ func stripAnsi(s string) string {
 	return strings.ReplaceAll(s, "\x1b[", "")
 }
 
-// TestRenderTranscript verifies the transcript display: a divider between
+// TestRenderHistory verifies the transcript display: a divider between
 // turns, long lines word-wrapped (never truncated), bottom-anchored to rows.
-func TestRenderTranscript(t *testing.T) {
-	long := "Le Chonk (model): " + strings.Repeat("word ", 40)
-	lines := []string{
-		"[t1] Le Chonk (model): short thought",
-		long,
-		"[t2] Le Chonk (model): next turn thought",
+func TestRenderHistory(t *testing.T) {
+	events := []thoughtEvent{
+		{Kind: evSay, Turn: 1, Text: "short thought"},
+		{Kind: evSay, Turn: 1, Text: strings.Repeat("word ", 40)},
+		{Kind: evSay, Turn: 2, Text: "next turn thought"},
 	}
-	out := renderTranscript(lines, 40, 10)
+	out := renderHistory(events, modeStreamer, 40, 10)
 	if len(out) != 10 {
 		t.Fatalf("expected exactly 10 display rows, got %d", len(out))
 	}
