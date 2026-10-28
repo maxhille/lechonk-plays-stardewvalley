@@ -30,15 +30,47 @@ public class BotApi
 
     // ── Input (gamepad-style buttons) ─────────────────────────────────
 
-    /// <summary>Tap a button (single input tick, no yield). Pair with
+    /// <summary>Gamepad button names accepted by <see cref="TapButton"/>, mapped to
+    /// the controller <see cref="SButton"/> values. Plain A/B/X/Y/Back are keyboard
+    /// keys in SMAPI's unified enum, so they must be resolved to the controller
+    /// explicitly. Stick directions have no keyboard collision and fall through
+    /// to a raw <see cref="SButton"/> parse.</summary>
+    private static readonly Dictionary<string, SButton> GamepadButtons = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["A"] = SButton.ControllerA,
+        ["B"] = SButton.ControllerB,
+        ["X"] = SButton.ControllerX,
+        ["Y"] = SButton.ControllerY,
+        ["Start"] = SButton.ControllerStart,
+        ["Back"] = SButton.ControllerBack,
+        ["LT"] = SButton.LeftTrigger,
+        ["RT"] = SButton.RightTrigger,
+        ["LB"] = SButton.LeftShoulder,
+        ["RB"] = SButton.RightShoulder,
+    };
+
+    /// <summary>Tap a gamepad button (single input tick, no yield). Pair with
     /// bot.wait(1) or use bot.tap() to let the game process it.</summary>
     public object? TapButton(object? buttonName)
     {
         var name = buttonName?.ToString();
-        if (string.IsNullOrEmpty(name) || !Enum.TryParse<SButton>(name, true, out var button))
-            return $"error: unknown button '{name}'";
-        _helper.Input.Press(button);
-        return null;
+        if (string.IsNullOrEmpty(name))
+            return "error: no button name given";
+
+        // Friendly gamepad names first (disambiguated from keyboard keys), then
+        // raw SButton names (stick directions used by move*/cursor*). Gamepad only:
+        // keyboard and mouse buttons are deliberately not exposed.
+        if (GamepadButtons.TryGetValue(name, out var button))
+        {
+            _helper.Input.Press(button);
+            return null;
+        }
+        if (Enum.TryParse<SButton>(name, true, out var raw) && raw >= SButton.ControllerA)
+        {
+            _helper.Input.Press(raw);
+            return null;
+        }
+        return $"error: unknown button '{name}' (gamepad only: A, B, X, Y, Start, Back, LT, RT, LB, RB, LeftThumbstick*, RightThumbstick*)";
     }
 
     /// <summary>Debug: list furniture in the current location as {name, tile, isBed}.</summary>
@@ -478,7 +510,8 @@ public class BotApi
         var menu = Game1.activeClickableMenu;
         if (menu is DialogueBox db)
         {
-            db.clickAway();
+            // 1.6: dialogue advances on a click inside the box; clickAway() is a no-op.
+            db.receiveLeftClick(db.xPositionOnScreen + db.width / 2, db.yPositionOnScreen + db.height / 2);
         }
     }
 
@@ -492,9 +525,9 @@ public class BotApi
         var responses = db.responses;
         if (responses == null || idx < 0 || idx >= responses.Length) return;
 
-        // Set the selected response and click away
+        // Set the selected response and click the box (clickAway is a no-op in 1.6).
         db.selectedResponse = idx;
-        db.clickAway();
+        db.receiveLeftClick(db.xPositionOnScreen + db.width / 2, db.yPositionOnScreen + db.height / 2);
     }
 
     /// <summary>Close the current dialogue.</summary>
@@ -526,8 +559,9 @@ public class BotApi
                 new { name = "bot.loadGame(slotName)", description = "From the title screen, load the given save folder. Returns 'loading <name>' or 'error: ...'." },
                 new { name = "bot.exitToTitle()", description = "Quit the current save back to the title screen." },
                 new { name = "bot.waitForWorldReady()", description = "Block until the world is loaded and ready (yields once per tick), then return true. Use after bot.loadGame()." },
-                new { name = "bot.tap(buttonName)", description = "Tap a button and wait one tick for the game to process it." },
+                new { name = "bot.tap(name)", description = "Tap a gamepad button and wait one tick. Names: A (action/select/confirm), X (use tool), B (close menu), Start (menu), Y (craft), Back (journal), LT/RT (cycle hotbar item), LB/RB (shift hotbar)." },
                 new { name = "bot.moveLeft(ticks) / bot.moveRight(ticks) / bot.moveUp(ticks) / bot.moveDown(ticks)", description = "Hold the LEFT thumbstick in a direction for `ticks` input ticks. Movement stops automatically when the script ends. Roughly 10-16 ticks per tile." },
+                new { name = "bot.cursorLeft(ticks) / bot.cursorRight(ticks) / bot.cursorUp(ticks) / bot.cursorDown(ticks)", description = "Hold the RIGHT thumbstick (the cursor) in a direction for `ticks` ticks. In menus the cursor also scrolls. Keep it short: holding the right stick opens the emote wheel." },
                 new { name = "bot.wait(ticks)", description = "Wait for the given number of ticks." },
                 new { name = "bot.getPosition()", description = "Your current tile position {x, y} (0-indexed)." },
                 new { name = "bot.isTilePassable(x, y)", description = "The game's own static check: true unless the tile is a wall or building footprint. It does NOT account for trees, objects or furniture — those block movement too (check getTileObject / listObjects)." },

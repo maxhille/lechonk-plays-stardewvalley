@@ -149,6 +149,12 @@ public class ScriptController
                 function bot.moveDown(ticks)  return holdButton('LeftThumbstickDown', ticks) end
                 function bot.moveLeft(ticks)  return holdButton('LeftThumbstickLeft', ticks) end
 
+                -- Right thumbstick drives the cursor (also scrolls in menus).
+                function bot.cursorUp(ticks)    return holdButton('RightThumbstickUp', ticks) end
+                function bot.cursorRight(ticks) return holdButton('RightThumbstickRight', ticks) end
+                function bot.cursorDown(ticks)  return holdButton('RightThumbstickDown', ticks) end
+                function bot.cursorLeft(ticks)  return holdButton('RightThumbstickLeft', ticks) end
+
                 function bot.wait(ticks)
                     ticks = ticks or 1
                     for i = 1, ticks do
