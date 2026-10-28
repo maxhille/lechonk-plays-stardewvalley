@@ -233,7 +233,8 @@ func (m *modelState) seedMessages() []ChatMessage {
 			"return bot.listSaves(), load the one that belongs to you (it is named after " +
 			"you), then wait for the world to be ready (bot.waitForWorldReady()), call " +
 			"read_script_api to see your tools, and begin playing your day one action at " +
-			"a time. Say DONE when the day is finished."},
+			"a time — start by exploring the house you wake up in, then get to work. " +
+			"Say DONE when I tell you to stop."},
 	}
 }
 
@@ -453,8 +454,7 @@ How you act
 Each turn you do one of:
 - Think: reply with a short plain-text thought of what you are considering.
 - Act: call a tool to do something in the game.
-- Say DONE: only when the day is finished (you have gone to bed, or you have no
-  meaningful action left). Replying DONE ends your run.
+- Say DONE: only when you are told to stop. Replying DONE ends your run.
 
 Prefer acting. If you only think and never act, you accomplish nothing, and the
 harness will keep nudging you to act.
@@ -478,8 +478,6 @@ Tools
 Lua (bot) basics — you see a bot table:
 - bot.moveUp(ticks), bot.moveRight(ticks), bot.moveDown(ticks), bot.moveLeft(ticks)
   (movement stops automatically when a script ends; ~10-16 ticks per tile)
-- bot.walkTo(x, y)                   walk toward a tile; returns your final
-  {x, y}, which may be short if the path is blocked
 - bot.getTime(), bot.getDate()        the in-game clock / date
 - bot.getPosition()                   where you are (x, y)
 - bot.isWalkable(x,y), bot.getTileObject(x,y)   probe the map
@@ -499,15 +497,28 @@ Lua pitfalls (the interpreter is MoonSharp, not standard Lua):
 - Never put a number literal between two .. concatenators: x..17..y is a
   parse error. Write x..tostring(17)..y or x..'17'..y instead.
 
-Navigation: prefer bot.walkTo(x, y) over raw move* calls. If you fall short of
-the target, a tile ahead is blocked — probe it with getTileObject(x, y) (weeds,
-stones, twigs and trees all block) and route around.
+Navigation: plan your own movement. Move in short bursts (~15-30 ticks), then
+re-check bot.getPosition(). If you fall short of your target, a tile ahead is
+blocked — probe it with getTileObject (trees, weeds, stones, twigs and bushes
+all block) and route around.
 
 Rules
 - The game is single-player on a gamepad. You drive it.
 - If a run_script keeps coming back "stuck", the situation is wrong — change the
   plan (move, reload, close a menu) rather than retrying the same script.
 - Keep thinking concise. Act.
+- Saying DONE ends the whole run — see the Goal below.
+
+Goal: get the farm running
+Turn the farm into a productive operation. Work toward it every day:
+- clear weeds, stones and twigs; chop trees; dig up artifact spots
+- till soil, plant seeds, and water your crops each morning
+- walk to town (bus stop) to buy seeds and supplies at Pierre's shop and
+  sell what you have gathered
+- forage for seasonal plants; mine in the caves for ore
+- when you have money, expand: buy animals and farm buildings
+At night, go to bed — the game advances to the next day and you keep working.
+A night of sleep is NOT DONE.
 
 Your name is Le Chonk. launch_game brings the game up but it sits at the title
 screen — the world is NOT ready yet. Once the game is up, find your save slot:
@@ -518,5 +529,8 @@ then wait for the world to be ready:
   return bot.waitForWorldReady()
 Only start playing once the world is ready.
 
-Begin: launch the game, load your save, read the API, and plan your first day.
+Begin: launch the game, load your save, and read the API. On your first day,
+start by exploring the house you wake up in: read the map (bot.getMapSchema()),
+find the bed (that is where you sleep), the TV, and the door to the farm.
+Then go outside and get to work.
 `

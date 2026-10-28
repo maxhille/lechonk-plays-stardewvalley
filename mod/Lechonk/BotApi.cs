@@ -155,8 +155,15 @@ public class BotApi
             var ty = Convert.ToInt32(y);
             // 1.6: getObjectAt takes PIXEL coords; getObjectAtTile takes tiles.
             var obj = location.getObjectAtTile(tx, ty, false);
-            if (obj == null) return null;
-            return new Dictionary<string, object> { ["name"] = obj.Name, ["id"] = obj.ItemId };
+            if (obj != null) return new Dictionary<string, object> { ["name"] = obj.Name, ["id"] = obj.ItemId };
+            // Trees, hoe-dirt, bushes, grass and friends live in terrainFeatures,
+            // not objects — check that too.
+            if (location.terrainFeatures.TryGetValue(new Vector2(tx, ty), out var tf) && tf != null)
+            {
+                string name = tf is StardewValley.TerrainFeatures.Tree tree ? (tree.TextureName ?? "Tree") : tf.GetType().Name;
+                return new Dictionary<string, object> { ["name"] = name, ["type"] = tf.GetType().Name };
+            }
+            return null;
         }
         catch (Exception ex)
         {
@@ -447,12 +454,11 @@ public class BotApi
                 new { name = "bot.waitForWorldReady()", description = "Block until the world is loaded and ready (yields once per tick), then return true. Use after bot.loadGame()." },
                 new { name = "bot.tap(buttonName)", description = "Tap a button and wait one tick for the game to process it." },
                 new { name = "bot.moveLeft(ticks) / bot.moveRight(ticks) / bot.moveUp(ticks) / bot.moveDown(ticks)", description = "Hold the LEFT thumbstick in a direction for `ticks` input ticks. Movement stops automatically when the script ends. Roughly 10-16 ticks per tile." },
-                new { name = "bot.walkTo(x, y)", description = "Walk toward tile (x, y) in small steps (longer axis first). Returns your final {x, y} — it may fall short if something blocks the path; then scan the tiles ahead with getTileObject and go around." },
                 new { name = "bot.wait(ticks)", description = "Wait for the given number of ticks." },
                 new { name = "bot.getPosition()", description = "Your current tile position {x, y} (0-indexed)." },
                 new { name = "bot.getMapSchema()", description = "Map schema for the current location: { location, width, height, player {x, y}, walkable (array of row strings; row i+1 is tile y=i; '.' walkable, '#' blocked), warps [{x, y, target, targetX, targetY}] }. All coordinates are 0-indexed tiles." },
                 new { name = "bot.isWalkable(x, y)", description = "Check if tile (x, y) is walkable." },
-                new { name = "bot.getTileObject(x, y)", description = "Get object at tile (x, y) or null." },
+                new { name = "bot.getTileObject(x, y)", description = "Get the object or terrain feature at tile (x, y) — placed objects, plus trees, hoe-dirt, bushes and grass — or null." },
                 new { name = "bot.getInventory()", description = "List of {name, count, id} for inventory items." },
                 new { name = "bot.listFurniture()", description = "All furniture in the current location: {name, x, y}." },
                 new { name = "bot.getTime()", description = "Current in-game time {hour, minute}. The clock runs 06:00-26:00, so early morning hours can be 24 or 25." },
