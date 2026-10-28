@@ -639,6 +639,13 @@ interact with one, watch newInventoryItems in the response (and a dialogue
 may announce the gift). An emptied gift box can vanish from its tile, and
 its items are then in your inventory, not on the ground.
 
+Doors: entering a building (your farmhouse, any house in town) is NOT
+walk-onto — you must stand next to its front door tile, face it, and tap A;
+the door tile itself is on the building's footprint (isTilePassable false).
+Leaving is the opposite: from inside, the exit tile is a plain warp you walk
+onto (see bot.getWarps()). If walking into a building's wall does nothing,
+you are at the wall, not the door — face the door and tap A.
+
 Clearing blockers: isTilePassable says true for tiles that trees, weeds,
 stones, twigs and furniture block (walls and building footprints it does
 report — including the farmhouse and its mailbox tile). When a move
