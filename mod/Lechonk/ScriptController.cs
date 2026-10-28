@@ -163,15 +163,22 @@ public class ScriptController
             string? compileError = null;
             MoonSharp.Interpreter.Coroutine? coro = null;
 
-            var wrappedResultVal = script.DoString($"return function() {luaCode} end");
-            if (wrappedResultVal.Type != MoonSharp.Interpreter.DataType.Function)
+            try
             {
-                compileError = $"failed to compile (got {wrappedResultVal.Type})";
+                var wrappedResultVal = script.DoString($"return function() {luaCode} end");
+                if (wrappedResultVal.Type != MoonSharp.Interpreter.DataType.Function)
+                {
+                    compileError = $"failed to compile (got {wrappedResultVal.Type})";
+                }
+                else
+                {
+                    var coroValue = script.CreateCoroutine(wrappedResultVal);
+                    coro = coroValue.Coroutine;
+                }
             }
-            else
+            catch (Exception ex)
             {
-                var coroValue = script.CreateCoroutine(wrappedResultVal);
-                coro = coroValue.Coroutine;
+                compileError = ex.Message; // e.g. a Lua syntax error
             }
 
             if (compileError != null || coro == null)

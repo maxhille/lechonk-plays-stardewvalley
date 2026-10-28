@@ -256,8 +256,8 @@ func (m *modelState) tools() []Tool {
 		{Type: "function", Function: ToolFunctionDef{
 			Name: "run_script",
 			Description: "Run a Lua script against the bot API and get its result. It runs as a coroutine " +
-				"over live game ticks and blocks until done. Pass the code in the lua field.",
-			Parameters: json.RawMessage(`{"type":"object","properties":{"lua":{"type":"string","description":"Lua code, e.g. bot.moveUp(10) or return bot.getTime()"}},"required":["lua"]}`),
+				"over live game ticks and blocks until done. Pass the code in the lua field (max 1024 bytes).",
+			Parameters: json.RawMessage(`{"type":"object","properties":{"lua":{"type":"string","description":"Lua code, e.g. bot.moveUp(10) or return bot.getTime() (max 1024 bytes)"}},"required":["lua"]}`),
 		}},
 	}
 }
@@ -468,7 +468,7 @@ Tools
   optional.
 - run_script(lua): runs a Lua script against the bot API, synchronously. It blocks
   until the script finishes (or hits the tick budget) and hands back:
-  {"result","error","ticksUsed","evt"}.
+  {"result","error","ticksUsed","evt"}. Keep the script under 1024 bytes.
     * evt "completed": the script did what it asked.
     * evt "stuck": it hit the tick budget — you are blocked or going too far.
       Re-plan: check state, take a smaller step, or move. Do not just retry.

@@ -73,30 +73,62 @@ public class HttpServer
         }
     }
 
+    /// <summary>Maximum request body size in bytes — keeps scripts small.</summary>
+    public const int MaxBodyBytes = 1024;
+
     private void HandleClient(TcpClient client)
     {
         try
         {
             var stream = client.GetStream();
+            var buf = new byte[8192];
+            var head = new MemoryStream();
+            var body = new MemoryStream();
 
-            // Read the request line
-            var reader = new StreamReader(stream, NoBomUtf8, false, 128, true);
-            string? requestLine = reader.ReadLine();
-            if (requestLine == null) return;
-
-            var parts = requestLine.Split(' ');
-            if (parts.Length < 2) return;
-            string method = parts[0];
-            string path = parts[1].Split('?')[0];
+            // Read until the headers are complete (CRLF CRLF). Body bytes that
+            // arrive in the same chunks are carried over into `body`.
+            // Byte-level on purpose: a buffered character reader can hand back
+            // a partial body and report end-of-stream early.
+            int contentLength = 0;
+            string contentType = "";
+            string method = "", path = "";
+            bool headersDone = false;
+            while (!headersDone)
+            {
+                int n = stream.Read(buf, 0, buf.Length);
+                if (n <= 0) return;
+                head.Write(buf, 0, n);
+                int end = HeaderEnd(head.GetBuffer(), (int)head.Length);
+                if (end < 0)
+                {
+                    if (head.Length > 8192) return; // oversized header — bail
+                    continue;
+                }
+                var all = head.ToArray();
+                var headerText = NoBomUtf8.GetString(all, 0, end);
+                var lines = headerText.Split('\n');
+                var requestLine = lines[0].TrimEnd('\r').Split(' ');
+                if (requestLine.Length >= 2)
+                {
+                    method = requestLine[0];
+                    path = requestLine[1].Split('?')[0];
+                }
+                for (int i = 1; i < lines.Length; i++)
+                {
+                    var line = lines[i].TrimEnd('\r');
+                    if (line.StartsWith("Content-Length:"))
+                        contentLength = int.Parse(line.Substring(15).Trim());
+                    else if (line.StartsWith("Content-Type:"))
+                        contentType = line.Substring(13).Trim();
+                }
+                int extra = all.Length - end - 4;
+                if (extra > 0) body.Write(all, end + 4, extra);
+                headersDone = true;
+            }
 
             if (method == "GET" && path == "/api")
             {
                 HandleApi(client);
-                return;
-            }
-            if (method == "POST" && path == "/script")
-            {
-                HandleScript(client, reader);
                 return;
             }
             if (method == "POST" && path == "/pause")
@@ -118,13 +150,13 @@ public class HttpServer
                 SendResponse(client, r.Ok ? 200 : 400, json);
                 return;
             }
+            if (method == "POST" && path == "/script")
+            {
+                HandleScript(client, stream, contentLength, contentType, body);
+                return;
+            }
 
-            string body404 = "{}";
-            var writer = new StreamWriter(stream, NoBomUtf8) { AutoFlush = true };
-            writer.Write($"HTTP/1.1 404 Not Found\r\n");
-            writer.Write("Content-Type: application/json\r\n");
-            writer.Write($"Content-Length: {body404.Length}\r\n\r\n");
-            writer.Write(body404);
+            SendResponse(client, 404, "{}");
         }
         catch (Exception ex)
         {
@@ -136,40 +168,35 @@ public class HttpServer
         }
     }
 
-    private void HandleScript(TcpClient client, StreamReader reader)
+    /// <summary>Index of the CRLF CRLF header terminator in data[0..len), or -1.</summary>
+    private static int HeaderEnd(byte[] data, int len)
     {
-        int contentLength = 0;
-        string contentType = null;
-        string? line;
-        while ((line = reader.ReadLine()) != null && line.Length > 0)
+        for (int i = len - 4; i >= 0; i--)
+            if (data[i] == 13 && data[i + 1] == 10 && data[i + 2] == 13 && data[i + 3] == 10)
+                return i;
+        return -1;
+    }
+
+    private void HandleScript(TcpClient client, Stream stream, int contentLength, string contentType, MemoryStream body)
+    {
+        if (contentLength > MaxBodyBytes)
         {
-            if (line.StartsWith("Content-Length:"))
-            {
-                contentLength = int.Parse(line.Substring(15).Trim());
-            }
-            else if (line.StartsWith("Content-Type:"))
-            {
-                contentType = line.Substring(13).Trim();
-            }
+            SendResponse(client, 413, "{\"error\":\"body exceeds the " + MaxBodyBytes + "-byte limit\"}");
+            return;
         }
 
-        string body;
-        if (contentLength > 0)
+        // Read exactly contentLength body bytes (some may already be in `body`).
+        var buf = new byte[8192];
+        while (body.Length < contentLength)
         {
-            var buffer = new char[contentLength];
-            int total = 0;
-            while (total < contentLength)
-            {
-                int n = reader.Read(buffer, total, contentLength - total);
-                if (n <= 0) break;
-                total += n;
-            }
-            body = new string(buffer, 0, total);
+            int n = stream.Read(buf, 0, buf.Length);
+            if (n <= 0) break; // client vanished mid-body
+            body.Write(buf, 0, n);
         }
-        else
-        {
-            body = reader.ReadToEnd();
-        }
+
+        string bodyStr = body.Length > 0
+            ? NoBomUtf8.GetString(body.GetBuffer(), 0, (int)Math.Min(body.Length, contentLength))
+            : "";
 
         string scriptCode;
         if (!string.IsNullOrEmpty(contentType) && contentType.Contains("application/json"))
@@ -177,18 +204,18 @@ public class HttpServer
             // JSON envelope: {"script": "<lua code>"}
             try
             {
-                using var doc = JsonDocument.Parse(body);
-                scriptCode = doc.RootElement.TryGetProperty("script", out var el) ? (el.GetString() ?? "") : body;
+                using var doc = JsonDocument.Parse(bodyStr);
+                scriptCode = doc.RootElement.TryGetProperty("script", out var el) ? (el.GetString() ?? "") : bodyStr;
             }
             catch
             {
-                scriptCode = body.Trim();
+                scriptCode = bodyStr.Trim();
             }
         }
         else
         {
             // application/lua or plain text: body is the Lua script as-is.
-            scriptCode = body.Trim();
+            scriptCode = bodyStr.Trim();
         }
 
         if (string.IsNullOrEmpty(scriptCode))
@@ -222,7 +249,7 @@ public class HttpServer
     {
         var stream = client.GetStream();
         using var writer = new StreamWriter(stream, NoBomUtf8) { AutoFlush = true };
-        var reason = status == 200 ? "OK" : (status == 400 ? "Bad Request" : "Not Found");
+        var reason = status == 200 ? "OK" : (status == 400 ? "Bad Request" : (status == 404 ? "Not Found" : (status == 413 ? "Payload Too Large" : "Error")));
         writer.Write($"HTTP/1.1 {status} {reason}\r\n");
         writer.Write("Content-Type: application/json\r\n");
         writer.Write($"Content-Length: {json.Length}\r\n\r\n");

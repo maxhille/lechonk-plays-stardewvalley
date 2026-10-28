@@ -191,7 +191,8 @@ curl -s -X POST http://127.0.0.1:17642/script \
   -H 'Content-Type: application/lua' \
   -d 'local m = bot.getMapSchema()\nreturn {x = m.player.x, y = m.player.y}'
 ```
-No JSON wrapper, no `scriptId`. The response is written back on the same connection after
+No JSON wrapper, no `scriptId`. Bodies are capped at 1024 bytes (a `413` above
+that) — one action at a time. The response is written back on the same connection after
 the coroutine finishes: a `200` with `{ result, error, ticksUsed, evt }`.
 No `GET /status`, no polling.
 
