@@ -155,8 +155,9 @@ re-planning; his hidden reasoning (`reasoning_content`) is shown as gold
   HTTP connection until the Lua coroutine finishes (or hits the tick budget) and
   writes the result back in the same response. Inside the mod the script yields
   each game tick — the game loop resumes it — but the caller never polls.
-- **Tick budget is the only safety fence.** Every script has a hard tick cap; a stuck
-  script returns `{ error: "stuck: tick budget exceeded…", evt: "stuck" }`, the
+- **Tick budget is the only safety fence.** Every script has a hard tick cap
+  (1200 ticks ≈ 20s of game time); a wedged loop — e.g. walking against an
+  obstacle — returns `{ error: "stuck: tick budget exceeded…", evt: "stuck" }`, the
   agent re-plans. A script that causes a menu/dialogue to open returns early with
   `evt: "menuopened"` + the menu snapshot as its result. Connection close cancels
   the active script (the TCP connection is the run's lifetime handle).

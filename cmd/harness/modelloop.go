@@ -567,9 +567,9 @@ Tools
   Call it when a run begins, or whenever the game seems down. The save slot is
   optional.
 - run_script(lua): runs a Lua script against the bot API, synchronously. It blocks
-  until the script finishes (or hits the tick budget) and hands back:
-  {"result","error","ticksUsed","newInventoryItems","evt"}. A script can be up to 1024 characters
-  long — use the budget.
+  until the script finishes (or hits the tick budget, ~20s of game time) and hands
+  back: {"result","error","ticksUsed","newInventoryItems","evt"}. A script can be
+  up to 1024 characters long — use the budget.
     * evt "completed": the script did what it asked.
     * evt "menuopened": a menu or dialogue appeared while the script ran, so it
       was cut short and its result is the menu snapshot: {menu, buttons} — read
@@ -663,6 +663,17 @@ the plan (move there AND act AND check the result), and avoid spending turns
 on tiny single-call scripts when one planned script would finish the job.
 Sleeping is fine (the day ends at your bed), but a day frittered away on
 micro-steps is a day wasted.
+
+Scripts have a HARD TICK BUDGET (~20s of game time): a wedged loop — walking
+against an obstacle that never yields — is killed and returns evt "stuck".
+Write your loops defensively:
+- NEVER "while position not at target do move() end" — if a blocker stops
+  you, that loop never exits and the whole script is wasted. Bound every
+  loop: "for i = 1, N do ..." with a position re-check and an early break
+  when you stop making progress.
+- After each move burst, re-read bot.getPosition(); if it did not change, you
+  are blocked — stop, probe with getTileObject, and route around or clear the
+  blocker instead of pushing.
 
 Lua pitfalls (the interpreter is MoonSharp, not standard Lua):
 - Never put a number literal between two .. concatenators: x..17..y is a

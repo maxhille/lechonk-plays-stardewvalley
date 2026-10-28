@@ -224,7 +224,12 @@ public class HttpServer
             return;
         }
 
-        var result = _controller.RunScriptBlocking(scriptCode, 20000);
+        // Tick budget: a hard cap on script runtime, ~20s of game time at
+        // 60 ticks/s. A wedged loop (walking against an obstacle forever) hits
+        // it fast and returns evt "stuck", which the agent re-plans from —
+        // instead of grinding for minutes until the HTTP connection dies.
+        const int scriptTickBudget = 1200;
+        var result = _controller.RunScriptBlocking(scriptCode, scriptTickBudget);
         // Mail state is read live (the flag on the mailbox), not cached in the
         // script response — so it reflects the moment the agent reads this.
         result.NewMail = _botApi.HasNewMail();
