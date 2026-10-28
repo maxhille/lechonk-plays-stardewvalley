@@ -145,7 +145,8 @@ public class BotApi
             var location = Game1.currentLocation;
             var tx = Convert.ToInt32(x);
             var ty = Convert.ToInt32(y);
-            var obj = location.getObjectAt(tx, ty, false);
+            // 1.6: getObjectAt takes PIXEL coords; getObjectAtTile takes tiles.
+            var obj = location.getObjectAtTile(tx, ty, false);
             if (obj == null) return null;
             return new Dictionary<string, object> { ["name"] = obj.Name, ["id"] = obj.ItemId };
         }
