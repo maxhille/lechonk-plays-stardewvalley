@@ -110,6 +110,7 @@ public class ScriptController
             botTable["listAnimals"] = (Func<object?>)(() => _botApi.ListAnimals());
             botTable["getEnergy"] = (Func<object?>)(() => _botApi.GetEnergy());
             botTable["getPosition"] = (Func<object?>)(() => _botApi.GetPosition());
+            botTable["getFacing"] = (Func<object?>)(() => _botApi.GetFacing());
             botTable["getInventory"] = (Func<object?>)(() => _botApi.GetInventory());
             botTable["selectTool"] = (Func<object?, object?>)(name => _botApi.SelectTool(name));
             botTable["getTime"] = (Func<object?>)(() => _botApi.GetTime());
@@ -118,6 +119,7 @@ public class ScriptController
             botTable["loadGame"] = (Func<object?, object?>)(slotName => _botApi.LoadGame(slotName));
             botTable["exitToTitle"] = (Func<object?, object?>)(_ => _botApi.ExitToTitle());
             botTable["waitForWorldReadyTick"] = (Func<object?, object?>)(_ => _botApi.WaitForWorldReady());
+            botTable["waitForMenuTick"] = (Func<object?, object?>)(_ => _botApi.WaitForMenuTick());
             botTable["listFurniture"] = (Func<object?>)(() => _botApi.ListFurniture());
             botTable["getMenuType"] = (Func<object?>)(() => _botApi.GetMenuType());
             botTable["getMenuButtons"] = (Func<object?>)(() => _botApi.GetMenuButtons());
@@ -169,6 +171,18 @@ public class ScriptController
                         if ret ~= Y then return ret end
                         coroutine.yield()
                     end
+                end
+
+                -- Menus open asynchronously (chest lids animate ~1s), so after
+                -- tapping A, wait for the menu instead of checking once.
+                function bot.waitForMenu(timeout)
+                    timeout = timeout or 120
+                    for i = 1, timeout do
+                        local m = bot.waitForMenuTick()
+                        if m ~= Y then return m end
+                        coroutine.yield()
+                    end
+                    return nil
                 end
             ";
             script.DoString(prelude);

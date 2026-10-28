@@ -390,6 +390,31 @@ public class BotApi
 
     // ── Menus ─────────────────────────────────────────────────────────
 
+    /// <summary>Which way the player is facing: "up", "right", "down" or
+    /// "left" (game values 0-3). Interaction targets the faced tile, so check
+    /// this after positioning, not just the position.</summary>
+    public object? GetFacing()
+    {
+        return Game1.player.FacingDirection switch
+        {
+            0 => "up",
+            1 => "right",
+            2 => "down",
+            3 => "left",
+            var d => d.ToString(),
+        };
+    }
+
+    /// <summary>Tick probe for <c>bot.waitForMenu</c>: returns the menu info
+    /// once one is open, or the yield marker to keep waiting.</summary>
+    public object? WaitForMenuTick()
+    {
+        var menu = GetMenuType();
+        if (menu != null)
+            return menu;
+        return Yield;
+    }
+
     /// <summary>Get info about the currently active menu, or null.</summary>
     public object? GetMenuType()
     {
@@ -583,7 +608,7 @@ public class BotApi
                 new { name = "bot.loadGame(slotName)", description = "From the title screen, load the given save folder. Returns 'loading <name>' or 'error: ...'." },
                 new { name = "bot.exitToTitle()", description = "Quit the current save back to the title screen." },
                 new { name = "bot.waitForWorldReady()", description = "Block until the world is loaded and ready (yields once per tick), then return true. Use after bot.loadGame()." },
-                new { name = "bot.tap(name)", description = "Tap a gamepad button and wait one tick. Names: A (action/select/confirm), X (use tool), B (close menu), Start (menu), Y (craft), Back (journal), LT/RT (cycle hotbar item), LB/RB (shift hotbar)." },
+                new { name = "bot.tap(name)", description = "Tap a gamepad button and wait one tick. Names: A (action/select/confirm), X (use tool), B (close menu), Start (menu), Y (craft), Back (journal), LT/RT (cycle hotbar item), LB/RB (shift hotbar). While a menu is open, A clicks at the cursor inside that menu, not the faced tile — check getMenuType() before tapping." },
                 new { name = "bot.moveLeft(ticks) / bot.moveRight(ticks) / bot.moveUp(ticks) / bot.moveDown(ticks)", description = "Hold the LEFT thumbstick in a direction for `ticks` input ticks. Movement stops automatically when the script ends. Roughly 10-16 ticks per tile." },
                 new { name = "bot.cursorLeft(ticks) / bot.cursorRight(ticks) / bot.cursorUp(ticks) / bot.cursorDown(ticks)", description = "Hold the RIGHT thumbstick (the cursor) in a direction for `ticks` ticks. In menus the cursor also scrolls. Keep it short: holding the right stick opens the emote wheel." },
                 new { name = "bot.wait(ticks)", description = "Wait for the given number of ticks." },
@@ -600,8 +625,11 @@ public class BotApi
                 new { name = "bot.listNpcs()", description = "Every NPC currently in the location: {name, x, y}." },
                 new { name = "bot.listAnimals()", description = "Every farm animal in the location: {name, x, y}." },
                 new { name = "bot.getTime()", description = "Current in-game time {hour, minute}. The clock runs 06:00-26:00, so early morning hours can be 24 or 25." },
+                new { name = "bot.getFacing()", description = "Direction the player faces: \"up\", \"right\", \"down\" or \"left\". Interaction targets the faced tile — check it after positioning." },
+                new { name = "bot.getFacing()", description = "Direction the player faces: \"up\", \"right\", \"down\" or \"left\". Interaction targets the faced tile — check it after positioning." },
                 new { name = "bot.getDate()", description = "Return {season, day}." },
-                new { name = "bot.getMenuType()", description = "Info about the active menu or the emote wheel (type \"EmoteMenu\"), or null." },
+                new { name = "bot.getMenuType()", description = "Info about the active menu or the emote wheel (type \"EmoteMenu\"), or null. Menus open asynchronously: after tapping A on an object, poll with bot.waitForMenu() instead of checking once." },
+                new { name = "bot.waitForMenu(timeout)", description = "Yield until a menu opens, then return its info (same shape as getMenuType). Timeout in ticks (default 120); returns null if no menu appeared. Use after tapping A — chest lids animate ~1s before the menu opens." },
                 new { name = "bot.getMenuButtons()", description = "Button info for the active menu." },
                 new { name = "bot.clickMenuButton(index)", description = "Click button at index on the active menu." },
                 new { name = "bot.advanceDialogue()", description = "Advance the current dialogue." },
