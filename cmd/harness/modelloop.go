@@ -477,7 +477,7 @@ Tools
 
 Lua (bot) basics — you see a bot table:
 - bot.moveUp(ticks), bot.moveRight(ticks), bot.moveDown(ticks), bot.moveLeft(ticks)
-- bot.stop()                          stop moving immediately
+  (movement stops automatically when a script ends)
 - bot.getTime(), bot.getDate()        the in-game clock / date
 - bot.getPosition()                   where you are (x, y)
 - bot.isWalkable(x,y), bot.getTileObject(x,y)   probe the map

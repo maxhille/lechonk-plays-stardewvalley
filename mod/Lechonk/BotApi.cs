@@ -41,12 +41,6 @@ public class BotApi
         return null;
     }
 
-    /// <summary>Stop any held movement immediately.</summary>
-    public void Stop()
-    {
-        Game1.player.Halt();
-    }
-
     /// <summary>Debug: list furniture in the current location as {name, tile, isBed}.</summary>
     public object? ListFurniture()
     {
@@ -176,10 +170,13 @@ public class BotApi
         return items.ToArray();
     }
 
-    /// <summary>Return the current in-game hour (0-24).</summary>
-    public int GetTime()
+    /// <summary>Return the current in-game time as {hour, minute}.</summary>
+    /// <remarks>Game1.timeOfDay is minutes since midnight; the clock runs
+    /// 06:00 (360) to 26:00 (1560), so early morning hours can be 24 or 25.</remarks>
+    public object GetTime()
     {
-        return Game1.timeOfDay / 1000;
+        int m = Game1.timeOfDay;
+        return new Dictionary<string, int> { ["hour"] = m / 60, ["minute"] = m % 60 };
     }
 
     /// <summary>Return the current season and day as {season, day}.</summary>
@@ -433,15 +430,14 @@ public class BotApi
                 new { name = "bot.exitToTitle()", description = "Quit the current save back to the title screen." },
                 new { name = "bot.waitForWorldReady()", description = "Block until the world is loaded and ready (yields once per tick), then return true. Use after bot.loadGame()." },
                 new { name = "bot.tap(buttonName)", description = "Tap a button and wait one tick for the game to process it." },
-                new { name = "bot.moveLeft(ticks) / bot.moveRight(ticks) / bot.moveUp(ticks) / bot.moveDown(ticks)", description = "Walk in a direction for `ticks` game ticks. The agent never needs to know key names; the mod resolves the game's movement keybinds." },
-                new { name = "bot.stop()", description = "Stop any held movement immediately." },
+                new { name = "bot.moveLeft(ticks) / bot.moveRight(ticks) / bot.moveUp(ticks) / bot.moveDown(ticks)", description = "Hold the LEFT thumbstick in a direction for `ticks` input ticks. Movement stops automatically when the script ends." },
                 new { name = "bot.wait(ticks)", description = "Wait for the given number of ticks." },
                 new { name = "bot.getMapSchema()", description = "Map schema for the current location: { location, width, height, player {x, y}, walkable (grid rows of '.'/'#'), warps [{x, y, target, targetX, targetY}] }." },
                 new { name = "bot.isWalkable(x, y)", description = "Check if tile (x, y) is walkable." },
                 new { name = "bot.getTileObject(x, y)", description = "Get object at tile (x, y) or null." },
                 new { name = "bot.getInventory()", description = "List of {name, count, id} for inventory items." },
                 new { name = "bot.listFurniture()", description = "All furniture in the current location: {name, x, y}." },
-                new { name = "bot.getTime()", description = "Current in-game hour (0-24)." },
+                new { name = "bot.getTime()", description = "Current in-game time {hour, minute}. The clock runs 06:00-26:00, so early morning hours can be 24 or 25." },
                 new { name = "bot.getDate()", description = "Return {season, day}." },
                 new { name = "bot.getMenuType()", description = "Info about the active menu, or null." },
                 new { name = "bot.getMenuButtons()", description = "Button info for the active menu." },

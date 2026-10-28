@@ -191,7 +191,7 @@ Lua scripts see a `bot` table:
 - **Movement:** `bot.moveUp(ticks)`, `bot.moveRight(ticks)`, `bot.moveDown(ticks)`,
   `bot.moveLeft(ticks)` — hold the LEFT thumbstick for `ticks` input ticks.
   The game runs in gamepad mode; the controller is the sole input source.
-  `bot.stop()` halts immediately.
+  Movement stops automatically when a script ends.
 - **Saves:** `bot.listSaves()`, `bot.loadGame(slotName)` (from the title screen,
   skips character creation), `bot.exitToTitle()`.
 - **State:** `bot.getPosition()`, `bot.isWalkable(x, y)`, `bot.getTileObject(x, y)`,

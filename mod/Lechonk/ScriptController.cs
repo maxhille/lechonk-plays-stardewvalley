@@ -45,7 +45,6 @@ public class ScriptController
             var botTable = new MoonSharp.Interpreter.Table(script);
             botTable["print"] = (Func<object?, object?>)(msg => { _botApi.Print(msg?.ToString()); return null; });
             botTable["tapButton"] = (Func<object?, object?>)(b => _botApi.TapButton(b));
-            botTable["stop"] = (Func<object?, object?>)(_ => { _botApi.Stop(); return null; });
             botTable["wait"] = (Func<object?, object?>)(t => _botApi.Wait(t));
             botTable["getMapSchema"] = (Func<object?>)(() => _botApi.GetMapSchema());
             botTable["isWalkable"] = (Func<object?, object?, object?>)((x, y) => _botApi.IsWalkable(x, y));
