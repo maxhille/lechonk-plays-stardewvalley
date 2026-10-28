@@ -139,13 +139,13 @@ re-planning; his hidden reasoning (`reasoning_content`) is shown as gold
 | Tool | What it does |
 |---|---|
 | `launch_game()` | Starts the game as a child (if not already up) and returns once the mod API answers on `:17642`. Le Chonk then loads his own save and waits for the world via `run_script`. |
-| `run_script(lua)` | `POST /script`; blocks; returns `{result, error, ticksUsed, newInventoryItems, evt}`. |
+| `run_script(lua)` | `POST /script`; blocks; returns `{result, error, ticksUsed, newInventoryItems, newMail, evt}`. |
 | `read_script_api()` | `GET /api` — the full bot schema. This is how Le Chonk reads his own manual. |
 
 ### Design decisions
 
 - **Two mod endpoints, three harness tools.** The mod's entire surface is
-  `POST /script` (`{ result, error, ticksUsed, newInventoryItems, evt }`) and `GET /api` (API
+  `POST /script` (`{ result, error, ticksUsed, newInventoryItems, newMail, evt }`) and `GET /api` (API
   schema). The harness exposes three tools over it: `run_script`,
   `launch_game`, `read_script_api`. No abort endpoint, no status endpoint,
   no script registry.
@@ -181,8 +181,9 @@ re-planning; his hidden reasoning (`reasoning_content`) is shown as gold
 ## Bot API
 
 The agent-facing surface is `POST /script` (response: `{ result, error,
-ticksUsed, newInventoryItems, evt }` — `newInventoryItems` lists items that
-entered the player's inventory during the script, or null) and `GET /api`
+ticksUsed, newInventoryItems, newMail, evt }` — `newInventoryItems` lists items
+that entered the player's inventory during the script, or null; `newMail` is
+true while unread mail waits in the farmhouse mailbox) and `GET /api`
 (full schema). There is also an admin-only `POST /pause` (no
 body): it opens or closes the in-game menu (`GameMenu`) directly on the game
 thread — no input is involved, so it works even when the game window has lost
@@ -196,7 +197,7 @@ curl -s -X POST http://127.0.0.1:17642/script \
 ```
 No JSON wrapper, no `scriptId`. Bodies are capped at 1024 bytes (a `413` above
 that) — a full Lua script, not a single call. The response is written back on the same connection after
-the coroutine finishes: a `200` with `{ result, error, ticksUsed, newInventoryItems, evt }`.
+the coroutine finishes: a `200` with `{ result, error, ticksUsed, newInventoryItems, newMail, evt }`.
 No `GET /status`, no polling.
 
 Lua scripts see a `bot` table:

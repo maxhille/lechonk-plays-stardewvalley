@@ -225,6 +225,9 @@ public class HttpServer
         }
 
         var result = _controller.RunScriptBlocking(scriptCode, 20000);
+        // Mail state is read live (the flag on the mailbox), not cached in the
+        // script response — so it reflects the moment the agent reads this.
+        result.NewMail = _botApi.HasNewMail();
 
         string json;
         try
@@ -235,6 +238,7 @@ public class HttpServer
                 error = result.Error,
                 ticksUsed = result.TicksUsed,
                 newInventoryItems = result.NewInventoryItems,
+                newMail = result.NewMail,
                 evt = result.EventName
             }, new JsonSerializerOptions { WriteIndented = true });
         }

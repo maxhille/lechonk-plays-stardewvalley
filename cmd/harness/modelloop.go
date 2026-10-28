@@ -560,6 +560,12 @@ Tools
       (null when nothing changed) — read it; it tells you what you just picked
       up or received, so you never need to re-check getInventory after an
       interaction.
+    * newMail: true when unread mail waits in the farmhouse mailbox — the
+      flag on the box is up. The mailbox is by the farmhouse front door (it
+      is a building tile, not an object, so no probe can see it — trust this
+      flag). To read mail: stand next to the mailbox, face it, tap A. The
+      letter opens as a menu; read it, it often contains quests or gifts,
+      then close it with tap('B').
 
 Lua (bot) basics — you see a bot table:
 - bot.moveUp(ticks), bot.moveRight(ticks), bot.moveDown(ticks), bot.moveLeft(ticks)

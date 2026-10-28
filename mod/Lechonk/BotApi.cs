@@ -316,6 +316,24 @@ public class BotApi
         return items.ToArray();
     }
 
+    /// <summary>Is unread mail waiting in the farmhouse mailbox? True when the
+    /// flag on the box is up (Game1.mailbox has letters). The mailbox is a map
+    /// action tile on the farmhouse, not an object — no tile probe can see it,
+    /// so the response bundle carries this flag instead.</summary>
+    public bool HasNewMail()
+    {
+        return Context.IsWorldReady && Game1.mailbox.Count > 0;
+    }
+
+    /// <summary>The farmhouse mailbox tile — where to stand to read mail.
+    /// Mirrors the game's own resolution (farmhouse action tile, else map
+    /// default). Interact by standing adjacent, facing it, and tapping A.</summary>
+    public object? GetMailboxPosition()
+    {
+        var p = Game1.player.getMailboxPosition();
+        return new Dictionary<string, object?> { ["x"] = p.X, ["y"] = p.Y };
+    }
+
     /// <summary>Take a reference snapshot of the player's inventory, for
     /// <see cref="InventoryDiff"/>. Held items are compared by item id and
     /// stack count.</summary>

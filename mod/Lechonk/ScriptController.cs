@@ -433,6 +433,10 @@ public class ScriptResponse
     /// (name + count), or null when nothing changed. Always present in the HTTP
     /// bundle — it is the "what did I just get" signal.</summary>
     public object? NewInventoryItems { get; set; }
+    /// <summary>Is unread mail waiting in the farmhouse mailbox? Read from the
+    /// live game state when the response is written (HttpServer), so it
+    /// reflects the moment the agent sees the response.</summary>
+    public bool NewMail { get; set; }
 }
 
 /// <summary>Result of an admin pause toggle.</summary>
