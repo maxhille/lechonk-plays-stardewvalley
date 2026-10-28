@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	charmansi "github.com/charmbracelet/x/ansi"
 )
 
 // TestFrameTheming verifies the full-screen themed frame (gold border +
@@ -86,4 +88,33 @@ func TestDeathNotification(t *testing.T) {
 // stripAnsi drops terminal escape sequences so assertions read plain text.
 func stripAnsi(s string) string {
 	return strings.ReplaceAll(s, "\x1b[", "")
+}
+
+// TestRenderTranscript verifies the transcript display: a divider between
+// turns, long lines word-wrapped (never truncated), bottom-anchored to rows.
+func TestRenderTranscript(t *testing.T) {
+	long := "Le Chonk (model): " + strings.Repeat("word ", 40)
+	lines := []string{
+		"[t1] Le Chonk (model): short thought",
+		long,
+		"[t2] Le Chonk (model): next turn thought",
+	}
+	out := renderTranscript(lines, 40, 10)
+	if len(out) != 10 {
+		t.Fatalf("expected exactly 10 display rows, got %d", len(out))
+	}
+	for i, line := range out {
+		if w := charmansi.StringWidth(stripAnsi(line)); w > 40 {
+			t.Errorf("row %d exceeds width 40 (%d cols): %q", i, w, line)
+		}
+	}
+	joined := stripAnsi(strings.Join(out, "\n"))
+	divIdx := strings.Index(joined, "────")
+	t2Idx := strings.Index(joined, "[t2]")
+	if divIdx < 0 || t2Idx < 0 || divIdx > t2Idx {
+		t.Errorf("turn divider missing or not before the [t2] line (div=%d, t2=%d):\n%s", divIdx, t2Idx, joined)
+	}
+	if strings.Contains(joined, "…") {
+		t.Errorf("long line was truncated instead of wrapped:\n%s", joined)
+	}
 }

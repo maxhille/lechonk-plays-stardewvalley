@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -189,6 +190,95 @@ func padRight(s string, w int) string {
 	return s + strings.Repeat(" ", w-charmansi.StringWidth(s))
 }
 
+// wrapText word-wraps s to at most width columns (rune-aware). Long tokens
+// with no space break hard at the edge.
+func wrapText(s string, width int) []string {
+	runes := []rune(s)
+	if width <= 0 || len(runes) <= width {
+		return []string{s}
+	}
+	var out []string
+	rest := runes
+	for len(rest) > width {
+		cut := width
+		// Prefer a word boundary: back up to the last space in this row.
+		if rest[cut-1] != ' ' {
+			for i := cut - 1; i > 0; i-- {
+				if rest[i] == ' ' {
+					cut = i
+					break
+				}
+			}
+		}
+		out = append(out, string(rest[:cut]))
+		rest = rest[cut:]
+		if len(rest) > 0 && rest[0] == ' ' {
+			rest = rest[1:]
+		}
+	}
+	if len(rest) > 0 {
+		out = append(out, string(rest))
+	}
+	return out
+}
+
+// turnOf extracts the [tN] turn tag from a transcript line (0 if absent).
+func turnOf(line string) int {
+	if !strings.HasPrefix(line, "[t") {
+		return 0
+	}
+	i := strings.Index(line, "] ")
+	if i < 3 {
+		return 0
+	}
+	n, err := strconv.Atoi(line[2:i])
+	if err != nil {
+		return 0
+	}
+	return n
+}
+
+// renderTranscript turns raw transcript lines into display lines: a divider
+// between turns, word-wrapped text, bottom-anchored to rows. Returns exactly
+// rows entries (nil when rows <= 0).
+func renderTranscript(lines []string, width, rows int) []string {
+	if rows <= 0 {
+		return nil
+	}
+	var all []string
+	lastTurn := 0
+	seenTurn := false
+	for _, line := range lines {
+		turn := turnOf(line)
+		if seenTurn && turn > lastTurn {
+			all = append(all, dividerStyle.Render(strings.Repeat("─", width)))
+		}
+		if turn > 0 {
+			lastTurn = turn
+			seenTurn = true
+		}
+		st := transcriptStyle
+		if strings.Contains(line, "Le Chonk (model):") {
+			st = thinkingStyle
+		}
+		for _, wl := range wrapText(line, width) {
+			all = append(all, st.Render(wl))
+		}
+	}
+	start := 0
+	if len(all) > rows {
+		start = len(all) - rows
+	}
+	out := make([]string, rows)
+	for i := 0; i < rows; i++ {
+		idx := start + i
+		if idx < len(all) {
+			out[i] = padRight(all[idx], width)
+		}
+	}
+	return out
+}
+
 // View renders the full-screen frame, falling back to a plain compact view
 // when the terminal size is still unknown (first paint) or the window is tiny.
 func (m uiModel) View() string {
@@ -236,23 +326,11 @@ func (m uiModel) frame() string {
 	content[2] = dividerStyle.Render(divider)
 	content[insideH-1] = padRight(footerStyle.Render(footer), insideW)
 
-	// Transcript: bottom-anchored (latest line closest to the footer).
-	var trans []string
-	if len(m.lines) > transcriptRows {
-		trans = m.lines[len(m.lines)-transcriptRows:]
-	} else {
-		trans = m.lines
-	}
-	topPad := transcriptRows - len(trans)
-	for i := 0; i < topPad; i++ {
-		content[3+i] = ""
-	}
-	for i, line := range trans {
-		st := transcriptStyle
-		if strings.Contains(line, "Le Chonk (model):") {
-			st = thinkingStyle
+	// Transcript: bottom-anchored, turn-divided, word-wrapped.
+	if transcriptRows > 0 {
+		for i, line := range renderTranscript(m.lines, insideW, transcriptRows) {
+			content[3+i] = line
 		}
-		content[3+topPad+i] = padRight(st.Render(line), insideW)
 	}
 
 	return frameStyle.Render(strings.Join(content, "\n"))
@@ -307,15 +385,7 @@ func (m uiModel) plainView() string {
 		lines = append(lines, "last error: "+s.Error)
 	}
 	lines = append(lines, "")
-	const show = 12
-	n := len(m.lines)
-	start := 0
-	if n > show {
-		start = n - show
-	}
-	for i := start; i < n; i++ {
-		lines = append(lines, m.lines[i])
-	}
+	lines = append(lines, renderTranscript(m.lines, 80, 12)...)
 	lines = append(lines, "")
 	lines = append(lines, "keys:  l start Le Chonk · s stop · r restart · p pause · q quit   (auto-refreshes ~0.2s)")
 	return strings.Join(lines, "\n")
