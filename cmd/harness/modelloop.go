@@ -304,8 +304,8 @@ func (m *modelState) tools() []Tool {
 		{Type: "function", Function: ToolFunctionDef{
 			Name: "run_script",
 			Description: "Run a Lua script against the bot API and get its result. It runs as a coroutine " +
-				"over live game ticks and blocks until done. Pass the code in the lua field (up to 1024 characters).",
-			Parameters: json.RawMessage(`{"type":"object","properties":{"lua":{"type":"string","description":"Lua code, up to 1024 characters. Write a small program, e.g. bot.moveUp(20); local p=bot.getPosition() return p — not just a single call."}},"required":["lua"]}`),
+				"over live game ticks and blocks until done. Pass the code in the lua field (up to 4096 characters).",
+			Parameters: json.RawMessage(`{"type":"object","properties":{"lua":{"type":"string","description":"Lua code, up to 4096 characters. Write a small program, e.g. bot.moveUp(20); local p=bot.getPosition() return p — not just a single call."}},"required":["lua"]}`),
 		}},
 	}
 }
@@ -574,7 +574,7 @@ Tools
 - run_script(lua): runs a Lua script against the bot API, synchronously. It blocks
   until the script finishes (or hits the tick budget, ~20s of game time) and hands
   back: {"result","error","ticksUsed","newInventoryItems","evt"}. A script can be
-  up to 1024 characters long — use the budget.
+  up to 4096 characters long — use the budget.
     * evt "completed": the script did what it asked.
     * evt "menuopened": a menu or dialogue appeared while the script ran, so it
       was cut short and its result is the menu snapshot: {menu, buttons} — read
@@ -668,7 +668,7 @@ win, and getEnergy for the stamina cost.
 - bot.listSaves(), bot.loadGame(slot), bot.exitToTitle()  saves
 - bot.waitForWorldReady()             wait until the world is loaded
 
-Write real little programs, not single calls. A script is up to 1024 characters
+Write real little programs, not single calls. A script is up to 4096 characters
 of Lua — chain several bot actions in one script and use real Lua (local
 variables, for-loops, if/else). E.g. one script can move in a burst, re-check
 bot.getPosition(), then act — instead of one call per turn. Still keep each

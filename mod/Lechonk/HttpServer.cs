@@ -73,8 +73,8 @@ public class HttpServer
         }
     }
 
-    /// <summary>Maximum request body size in bytes — keeps scripts small.</summary>
-    public const int MaxBodyBytes = 1024;
+    /// <summary>Maximum request body size in bytes — keeps scripts bounded.</summary>
+    public const int MaxBodyBytes = 4096;
 
     private void HandleClient(TcpClient client)
     {

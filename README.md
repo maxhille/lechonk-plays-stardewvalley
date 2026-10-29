@@ -198,7 +198,7 @@ curl -s -X POST http://127.0.0.1:17642/script \
   -H 'Content-Type: application/lua' \
   -d 'return bot.getPosition()'
 ```
-No JSON wrapper, no `scriptId`. Bodies are capped at 1024 bytes (a `413` above
+No JSON wrapper, no `scriptId`. Bodies are capped at 4096 bytes (a `413` above
 that) — a full Lua script, not a single call. The response is written back on the same connection after
 the coroutine finishes: a `200` with `{ result, error, ticksUsed, newInventoryItems, newMail, evt }`.
 No `GET /status`, no polling.
