@@ -290,8 +290,10 @@ public class BotApi
             items.Add(new Dictionary<string, object>
             {
                 ["name"] = npc.Name,
-                ["x"] = (int)npc.Position.X,
-                ["y"] = (int)npc.Position.Y,
+                // Tiles (the game's own TilePoint), consistent with every other
+                // coordinate in this API — NOT raw pixels.
+                ["x"] = npc.TilePoint.X,
+                ["y"] = npc.TilePoint.Y,
             });
         }
         return items;
@@ -308,8 +310,9 @@ public class BotApi
             items.Add(new Dictionary<string, object>
             {
                 ["name"] = animal.Name,
-                ["x"] = (int)animal.Position.X,
-                ["y"] = (int)animal.Position.Y,
+                // Tiles, consistent with every other coordinate in this API.
+                ["x"] = animal.TilePoint.X,
+                ["y"] = animal.TilePoint.Y,
             });
         }
         return items;

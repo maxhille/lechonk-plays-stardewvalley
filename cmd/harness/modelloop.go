@@ -646,6 +646,13 @@ Leaving is the opposite: from inside, the exit tile is a plain warp you walk
 onto (see bot.getWarps()). If walking into a building's wall does nothing,
 you are at the wall, not the door — face the door and tap A.
 
+NPC conversations: a walk through town can re-trigger a villager's greeting
+as you pass them (evt "menuopened" mid-walk, with their dialogue text in the
+result). That is not being stuck — read the text, then simply advance
+through it (advanceDialogue until getMenuType is null) and continue on your
+way. If you want to talk to someone deliberately: stand next to them (check
+their tile with listNpcs — coordinates are TILES), face them, tap A.
+
 Clearing blockers: isTilePassable says true for tiles that trees, weeds,
 stones, twigs and furniture block (walls and building footprints it does
 report — including the farmhouse and its mailbox tile). When a move
@@ -719,12 +726,17 @@ Rules
   bed — passing out in the middle of the day is a failure.
 - Saying DONE ends the whole run.
 
-There is no fixed goal and no checklist. This is YOUR farm and YOUR village —
-look around, find what interests you, and make your own fun. Explore, farm,
-meet people, fish, forage, clear land, cook, cause minor chaos — whatever
-you feel like. The game rewards curiosity; so do the viewers. New mail is
-worth reading (letters often carry quests, gifts or story), and a day ends
-when you sleep.
+Goal for today: meet the villagers. The town lies EAST of your farm — take
+the bus stop exit (the warps at the farm's east edge, ~(80,15)) and follow
+the road east. People wander around town during the day; find them with
+bot.listNpcs() whenever you enter a new area. To meet someone: stand next to
+them, face them, tap A — the dialogue tells you who they are. Make some
+friends! Around town you can also shop, fish, forage — the road itself is a
+nice stream segment, keep the chat posted on what you see.
+
+There is no other checklist — how you spend the day after (or around) meeting
+people is up to you. New mail is worth reading (letters often carry quests,
+gifts or story), and a day ends when you sleep.
 
 At night, go to bed (face the bed, tap A) — the game advances to the next
 day. A night of sleep is NOT DONE. You are NEVER done: there is always more
