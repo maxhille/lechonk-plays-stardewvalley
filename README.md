@@ -116,7 +116,7 @@ Three processes, two network hops, three tools:
 └───────────┬────────────┘        └─────────────────────────────┘
             │
             ▼
-   Qwen3.8-27B (local ninfer, OpenAI-compat, tool calls)
+   mistral-large-4 (Mistral cloud API, OpenAI-compat, tool calls + streaming)
 ```
 
 - **Harness (Go + Bubble Tea):** owns the model conversation — system prompt, tool
@@ -250,18 +250,22 @@ Lua scripts see a `bot` table:
   navigation. Tested end to end, driven over the mod's HTTP API: load a save, wake, walk the farmer, open the
   TV channel menu.
 - [x] **Phase 2 — The brain.** Go/TUI harness: OpenAI-compatible model client
-  (tool calls, non-streaming), the three tools, the think→tool→observe loop,
+  (tool calls, streaming), the three tools, the think→tool→observe loop,
   live thought transcript (TUI + `/tmp/lechonk-transcript.log`), the game as a
   child process (kill the harness = kill the game), debug HTTP, headless mode.
   Verified live: Le Chonk launches the game, finds and loads his save, and
   plays — the model walks the farmer by itself, unaided.
-- [ ] **Phase 3 — The farmer.** Bot API surface grows (tools, inventory, dialogue,
-  beds, shops); recipes in `GET /api`; tune the model until a full in-game day
-  plays sensibly end to end. Also queued from Phase 2: streaming model output,
-  per-turn UTC header, compaction, top status bar, and the
-  flake `buildGoApplication` package.
+- [x] **Phase 3 — The farmer.** Bot API surface grew to ~35 methods (movement,
+  tools, inventory, menus/dialogue/letters, mailbox, warps, NPCs, terrain,
+  facing, energy, float positions); menus end scripts with a snapshot
+  (`evt: menuopened`); every response carries `newInventoryItems` and
+  `newMail`; streaming completions with a live thinking indicator; a
+  streamer/debug TUI toggle; model tuned through many live runs — he
+  explores, reads mail, opens chests, plants and waters parsnips, walks to
+  town, meets and talks to villagers. Still queued: compaction, per-turn UTC
+  header, the flake `buildGoApplication` package.
 - [ ] **Phase 4 — The submission.** Clean repo, README/description, demo video
-  (format TBD), post to Discord before 29 October.
+  (recorded), post to Discord before 29 October.
 - [ ] **Later (post-contest).** Resume checkpoint (goals + structured context);
   script library + library tools; WebSocket transport for remote play; human override
   if it ever becomes "a game I play".
