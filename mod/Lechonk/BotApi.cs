@@ -431,7 +431,7 @@ public class BotApi
     }
 
     /// <summary>Load a save from the title screen. <paramref name="slotName"/> is the
-    /// save folder name (e.g. "Max_129552567"), as returned by listSaves.</summary>
+    /// save folder name (e.g. "Farmer_123456789"), as returned by listSaves.</summary>
     public object? LoadGame(object? slotName)
     {
         var name = slotName?.ToString();
@@ -796,7 +796,7 @@ public class BotApi
         {
             methods = new[]
             {
-                new { name = "bot.listSaves()", description = "List save folder names (e.g. Max_129552567)." },
+                new { name = "bot.listSaves()", description = "List save folder names (e.g. Farmer_123456789)." },
                 new { name = "bot.loadGame(slotName)", description = "From the title screen, load the given save folder. Returns 'loading <name>' or 'error: ...'." },
                 new { name = "bot.exitToTitle()", description = "Quit the current save back to the title screen." },
                 new { name = "bot.waitForWorldReady()", description = "Block until the world is loaded and ready (yields once per tick), then return true. Use after bot.loadGame()." },

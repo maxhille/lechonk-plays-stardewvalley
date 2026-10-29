@@ -38,11 +38,10 @@ description, posted to `#challenges-submissions`.
   (`~/.config/StardewValley/Saves/<save>/<save>`); the game overwrites
   `startup_preferences`/`default_options` on close, so editing those alone does not
   stick. Set it in the save file.
-- **Process lifetime.** Phase 1 ran the game as a user systemd unit (the
-  `manage-game` skill); in Phase 2 the harness owns the game as a child process,
-  so killing the harness kills the game. Note for agents: never launch the game
-  inline from pi's bash tool — it group-kills (`SIGKILL`) the whole process
-  group when the call finishes, so an inline game dies instantly.
+- **Process lifetime.** The harness owns the game as a child process, so
+  killing the harness kills the game. Note for agents: never launch the game
+  inline from a tool-runner's bash — it group-kills (`SIGKILL`) the whole
+  process group when the call finishes, so an inline game dies instantly.
 
 ## Running it
 
@@ -166,10 +165,9 @@ re-planning; his hidden reasoning (`reasoning_content`) is shown as gold
 - **Prompt cache discipline.** Every request carries a constant
   `prompt_cache_key` (`lechonk-plays-stardewvalley`), so an endpoint that
   supports it (e.g. Mistral, where cached tokens bill at 10%) can cache the
-  shared conversation prefix; local servers ignore the field. Still planned:
-  stable-prefix hygiene and compaction (near a tunable max context length and
-  at day boundaries; the day summary carries the current goals forward so
-  compaction stays lossless).
+  shared conversation prefix; local servers ignore the field. Long sessions
+  would want compaction (day summaries carrying goals forward); not needed
+  for a day-scale run.
 - **Graceful shutdown.** Harness exit (signal or `q`) → stop the model loop →
   reap the game process tree (SIGTERM, then SIGKILL for survivors). Killing the
   harness cgroup always takes the game down with it.
@@ -237,45 +235,3 @@ Lua scripts see a `bot` table:
   menus are asynchronous (chest lids animate ~1s), so the script that caused
   one hands the screen back instead of polling.
 - **Debug:** `bot.print(msg)`.
-
-## Roadmap
-
-- [x] **Phase 0 — Grounds.** Game + SMAPI installed and running (SMAPI 4.5.2,
-  Stardew Valley 1.6.15, native Linux build, launched via `steam-run`); repo
-  scaffold (`cmd/harness/`, `mod/`).
-- [x] **Phase 1 — The body.** SMAPI mod with HTTP server (`POST /script`,
-  `GET /api`), MoonSharp Lua sandbox running scripts as coroutines over game
-  ticks, tick budget, cancel on connection close. Bot API: movement via
-  synthetic input, save load/exit, wake-up, state queries, menu/dialogue
-  navigation. Tested end to end, driven over the mod's HTTP API: load a save, wake, walk the farmer, open the
-  TV channel menu.
-- [x] **Phase 2 — The brain.** Go/TUI harness: OpenAI-compatible model client
-  (tool calls, streaming), the three tools, the think→tool→observe loop,
-  live thought transcript (TUI + `/tmp/lechonk-transcript.log`), the game as a
-  child process (kill the harness = kill the game), debug HTTP, headless mode.
-  Verified live: Le Chonk launches the game, finds and loads his save, and
-  plays — the model walks the farmer by itself, unaided.
-- [x] **Phase 3 — The farmer.** Bot API surface grew to ~35 methods (movement,
-  tools, inventory, menus/dialogue/letters, mailbox, warps, NPCs, terrain,
-  facing, energy, float positions); menus end scripts with a snapshot
-  (`evt: menuopened`); every response carries `newInventoryItems` and
-  `newMail`; streaming completions with a live thinking indicator; a
-  streamer/debug TUI toggle; model tuned through many live runs — he
-  explores, reads mail, opens chests, plants and waters parsnips, walks to
-  town, meets and talks to villagers. Still queued: compaction, per-turn UTC
-  header, the flake `buildGoApplication` package.
-- [ ] **Phase 4 — The submission.** Clean repo, README/description, demo video
-  (recorded), post to Discord before 29 October.
-- [ ] **Later (post-contest).** Resume checkpoint (goals + structured context);
-  script library + library tools; WebSocket transport for remote play; human override
-  if it ever becomes "a game I play".
-
-## Layout
-
-```
-flake.nix  devShell (Go + .NET SDK); Go module at the repo root (cmd/harness)
-cmd/harness/  Go + Bubble Tea TUI + model loop (built) — owns the game as a child process
-mod/Lechonk  C# SMAPI mod: HTTP server, Lua sandbox, Bot API
-.pi/skills/screenshot-game  pi skill: capture the game window to /tmp for reading
-.pi/skills/manage-game  pi skill: launch/stop/status the game (phase 1; the harness owns the game from phase 2)
-```

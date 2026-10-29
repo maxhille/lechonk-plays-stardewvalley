@@ -17,9 +17,9 @@ import (
 //
 // Config (env):
 //
-//	LECHONK_BASE_URL  e.g. http://saturn:9933/v1   (default)
-//	LECHONK_MODEL     e.g. Qwen3.8-27B            (default)
-//	LECHONK_API_KEY   optional; the local ninfer server needs none.
+//	LECHONK_BASE_URL  e.g. https://api.mistral.ai/v1 (default)
+//	LECHONK_MODEL     e.g. mistral-large-4          (default)
+//	LECHONK_API_KEY   the key the endpoint requires.
 type ModelClient struct {
 	baseURL string
 	model   string
@@ -29,8 +29,8 @@ type ModelClient struct {
 
 func NewModelClient() *ModelClient {
 	return &ModelClient{
-		baseURL: envOr("LECHONK_BASE_URL", "http://saturn:9933/v1"),
-		model:   envOr("LECHONK_MODEL", "Qwen3.8-27B"),
+		baseURL: envOr("LECHONK_BASE_URL", "https://api.mistral.ai/v1"),
+		model:   envOr("LECHONK_MODEL", "mistral-large-4"),
 		apiKey:  os.Getenv("LECHONK_API_KEY"),
 		http:    &http.Client{Timeout: 5 * time.Minute},
 	}
