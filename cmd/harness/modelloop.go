@@ -675,11 +675,16 @@ bot.getPosition(), then act — instead of one call per turn. Still keep each
 script bounded so it cannot overshoot or get stuck; observe first when the
 state is unknown (e.g. return bot.getPosition()).
 
-The day is SHORT: game time runs 06:00-26:00 and every turn you spend
-thinking, chatting or probing costs daylight. Budget your time like a busy
-farmer: think before you send a script, make each script do a whole step of
-the plan (move there AND act AND check the result), and avoid spending turns
-on tiny single-call scripts when one planned script would finish the job.
+The day is SHORT and the clock only runs while you play: game time passes
+ONLY while you can move — any open menu or dialogue PAUSES the clock, and
+it stays paused until that menu is closed. Your model turns (thinking,
+chatting) happen with the game waiting — so a menu you leave open costs
+REAL daylight, minute for minute. Rule: NEVER end your turn with a menu
+still open. Read it, act on it or close it (tap B / advanceDialogue) inside
+the SAME script; the only exception is a menu you deliberately want to
+interact with next turn (a chest you just opened). Budget your turns like a
+busy farmer: make each script do a whole step of the plan (move AND act AND
+check), not one tiny call.
 Sleeping is fine (the day ends at your bed), but a day frittered away on
 micro-steps is a day wasted.
 
